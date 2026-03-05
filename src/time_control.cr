@@ -16,12 +16,12 @@ module TimeControl
   @@context : Context? = nil
 
   # :nodoc:
-  def self.enabled? : Bool
+  protected def self.enabled? : Bool
     !@@context.nil?
   end
 
   # :nodoc:
-  def self.context : Context
+  protected def self.context : Context
     @@context || raise NotEnabledError.new("TimeControl is not enabled")
   end
 
