@@ -157,6 +157,18 @@ module TimeControl
     end
   end
 
+  private def self.enqueue_entry(entry : TimerEntry) : Nil
+    case entry.kind
+    in .sleep?
+      entry.fiber.enqueue
+    in .select_timeout?
+      if select_action = entry.fiber.timeout_select_action
+        entry.fiber.timeout_select_action = nil
+        entry.fiber.enqueue if select_action.time_expired?
+      end
+    end
+  end
+
   private def self.timer_loop(advance_ch : Channel(Time::Span), done_ch : Channel(Nil)) : Nil
     while duration = advance_ch.receive?
       target = @@virtual_now + duration
@@ -170,17 +182,7 @@ module TimeControl
         break unless entry
 
         @@virtual_now = entry.wake_at
-
-        case entry.kind
-        in .sleep?
-          entry.fiber.enqueue
-        in .select_timeout?
-          if select_action = entry.fiber.timeout_select_action
-            entry.fiber.timeout_select_action = nil
-            entry.fiber.enqueue if select_action.time_expired?
-          end
-        end
-
+        enqueue_entry(entry)
         sleep 1.millisecond
       end
 
@@ -191,16 +193,7 @@ module TimeControl
     loop do
       entry = @@timers_mutex.synchronize { @@timers.shift? }
       break unless entry
-
-      case entry.kind
-      in .sleep?
-        entry.fiber.enqueue
-      in .select_timeout?
-        if select_action = entry.fiber.timeout_select_action
-          entry.fiber.timeout_select_action = nil
-          entry.fiber.enqueue if select_action.time_expired?
-        end
-      end
+      enqueue_entry(entry)
     end
 
     done_ch.send(nil)
