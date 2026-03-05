@@ -1,7 +1,7 @@
 module TimeControl
   # Controller object yielded by `TimeControl.control`. Used to advance
   # virtual time from within the control block.
-  class Controller
+  private class Controller
     # :nodoc:
     def initialize(@ctx : Context)
     end
