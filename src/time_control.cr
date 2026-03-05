@@ -16,11 +16,6 @@ module TimeControl
   @@context : Context? = nil
 
   # :nodoc:
-  protected def self.context : Context
-    @@context || raise NotEnabledError.new("TimeControl is not enabled")
-  end
-
-  # :nodoc:
   def self.intercept(& : Context ->) : Nil
     ctx = @@context
     return unless ctx
