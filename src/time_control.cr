@@ -64,8 +64,7 @@ module TimeControl
     # ```
     def advance : Nil
       Fiber.yield
-      wake_at = @ctx.next_wake_at || raise "no pending timers"
-      @ctx.advance(wake_at - @ctx.virtual_now)
+      @ctx.advance
     end
   end
 

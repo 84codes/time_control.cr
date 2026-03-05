@@ -66,13 +66,14 @@ module TimeControl
       end
     end
 
-    def next_wake_at : Time::Instant?
-      @timers_mutex.synchronize { @timers.first?.try &.wake_at }
-    end
-
     def advance(duration : Time::Span) : Nil
       @advance_ch.send(duration)
       @done_ch.receive
+    end
+
+    def advance : Nil
+      wake_at = next_wake_at || raise "no pending timers"
+      advance(wake_at - @virtual_now)
     end
 
     def stop : Nil
@@ -106,6 +107,10 @@ module TimeControl
         @leaked_timer_count += 1
         enqueue_entry(entry)
       end
+    end
+
+    private def next_wake_at : Time::Instant?
+      @timers_mutex.synchronize { @timers.first?.try &.wake_at }
     end
 
     private def elapsed_ns : Int64
