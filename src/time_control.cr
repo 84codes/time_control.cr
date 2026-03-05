@@ -33,11 +33,6 @@ module TimeControl
     yield ctx
   end
 
-  # :nodoc:
-  def self.virtual_now : Time::Instant
-    context.virtual_now
-  end
-
   # Enables virtual time control for the duration of the block.
   #
   # Intercepts `sleep`, `select ... when timeout(...)`,

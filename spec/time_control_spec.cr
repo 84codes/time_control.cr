@@ -72,13 +72,13 @@ describe TimeControl do
     TimeControl.control do |controller|
       spawn do
         sleep 1.second
-        result.send(TimeControl.virtual_now)
+        result.send(Time.instant)
       end
 
       controller.advance(2.seconds)
       woke_at = result.receive
 
-      (woke_at - TimeControl.virtual_now).total_seconds.should be_close(-1.0, 0.001)
+      (woke_at - Time.instant).total_seconds.should be_close(-1.0, 0.001)
     end
   end
 
@@ -205,12 +205,6 @@ describe TimeControl do
     end
   end
 
-  it "raises NotEnabledError when accessed outside a control block" do
-    expect_raises(TimeControl::NotEnabledError) do
-      TimeControl.virtual_now
-    end
-  end
-
   it "raises if timers are still pending when the control block exits" do
     ex = expect_raises(TimeControl::PendingTimersError, /1 timer\(s\) were still pending/) do
       TimeControl.control do |_controller|
@@ -243,13 +237,11 @@ describe TimeControl do
 
   it "does not advance virtual time for sleep(0)" do
     TimeControl.control do |_controller|
-      t0 = TimeControl.virtual_now
+      t0 = Time.instant
       t0_utc = Time.utc
-      t0_instant = Time.instant
       sleep 0.seconds
-      TimeControl.virtual_now.should eq(t0)
+      Time.instant.should eq(t0)
       Time.utc.should eq(t0_utc)
-      Time.instant.should eq(t0_instant)
     end
   end
 
