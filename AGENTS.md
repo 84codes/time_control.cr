@@ -1,22 +1,19 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+A Crystal shard (library) that hijacks Crystal's event loop to control time in specs. Requires Crystal >= 1.19.1 and the `-Dexecution_context` compile flag.
 
-## Commands
+## Build & Test Commands
 
 The `-Dexecution_context` flag is required for all compilation and testing.
 
 ```sh
-crystal spec -Dexecution_context                        # run all tests
+crystal spec -Dexecution_context                            # run all tests
 crystal spec spec/time_control_spec.cr -Dexecution_context  # run a single spec file
-shards install                                          # install dependencies
+ameba                                                       # lint
+shards install                                              # install dependencies
 ```
 
 ## Architecture
-
-A Crystal shard (library) that hijacks Crystal's event loop to control time in specs. Requires Crystal >= 1.19.1 and the `-Dexecution_context` compile flag.
-
-### How it works
 
 `TimeControl.control { |controller| ... }` enables fake time for the duration of the block. The block receives a `Controller` object used to call `controller.advance(duration)`.
 
@@ -28,9 +25,8 @@ When enabled:
 - After each batch of woken fibers, the timer thread waits 1ms (real sleep — the timer loop thread is tracked on `Context` and excluded from interception via `TimeControl.when_controlling`) to allow chained sleeps to register before rechecking.
 - If the control block exits with timers still pending, `PendingTimersError` is raised.
 
-### Public API
+## Public API
 
-The public API consists of:
 - `TimeControl.control` — the main entry point
 - `Controller#advance(duration)` — advances virtual time by a fixed amount
 - `Controller#advance` — advances virtual time to the next pending timer
