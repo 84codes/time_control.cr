@@ -26,8 +26,10 @@ When enabled:
 - A `Fiber::ExecutionContext::Isolated` runs a dedicated timer thread (`timer_loop`). When `advance(N)` is called, the timer thread processes all virtual timers with `wake_at <= virtual_now + N` in order, enqueuing sleeping fibers back into their original execution contexts.
 - After each batch of woken fibers, the timer thread waits 1ms (using a real sleep, since the timer loop fiber is tracked via `@@timer_loop_fiber` and excluded from interception) to allow chained sleeps to register before rechecking.
 
-### File structure
+### Public API
 
-- `src/time_control.cr` — `TimeControl` module, `Remote` class, virtual timer queue, isolated context lifecycle
-- `src/time_control/core_ext/crystal/event_loop/polling.cr` — patches `Crystal::EventLoop::Polling#sleep`
-- `src/time_control/core_ext/fiber.cr` — patches `Fiber#timeout` and `Fiber#cancel_timeout`
+Only two methods are part of the public API and should have Crystal doc comments:
+- `TimeControl.control` — the main entry point
+- `Remote#advance` — advances virtual time
+
+Everything else is marked `# :nodoc:`. Do not add doc comments to internal methods, patch methods, or `@@` class variables.

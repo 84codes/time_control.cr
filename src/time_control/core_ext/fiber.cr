@@ -1,4 +1,5 @@
 class Fiber
+  # :nodoc:
   def timeout(timeout : Time::Span, select_action : Channel::TimeoutAction) : Nil
     if TimeControl.enabled?
       @timeout_select_action = select_action
@@ -9,6 +10,7 @@ class Fiber
     end
   end
 
+  # :nodoc:
   def cancel_timeout : Nil
     if TimeControl.enabled?
       return unless @timeout_select_action

@@ -10,60 +10,18 @@ require "./time_control/core_ext/fiber"
 module TimeControl
   VERSION = "0.1.0"
 
-  class Remote
-    def advance(duration : Time::Span) : Nil
-      TimeControl.advance(duration)
-    end
-  end
-
-  private enum TimerKind
-    Sleep
-    SelectTimeout
-  end
-
-  private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
-
-  @@enabled : Bool = false
-  @@virtual_now : Time::Instant = Time::Instant.new(0_i64, 0_i32)
-  @@control_start_instant : Time::Instant = Time::Instant.new(0_i64, 0_i32)
-  @@control_start_monotonic_ns : Int64 = 0_i64
-  @@control_start_utc_s : Int64 = 0_i64
-  @@control_start_utc_ns : Int32 = 0_i32
-  @@timers : Array(TimerEntry) = [] of TimerEntry
-  @@timers_mutex : Mutex = Mutex.new
-  @@advance_channel : Channel(Time::Span)? = nil
-  @@done_channel : Channel(Nil)? = nil
-  @@timer_loop_fiber : Fiber? = nil
-  @@timer_loop_thread : Thread? = nil
-
-  def self.enabled? : Bool
-    @@enabled
-  end
-
-  def self.virtual_now : Time::Instant
-    @@virtual_now
-  end
-
-  def self.timer_loop_fiber? : Fiber?
-    @@timer_loop_fiber
-  end
-
-  def self.timer_loop_thread? : Thread?
-    @@timer_loop_thread
-  end
-
-  def self.virtual_monotonic : {Int64, Int32}
-    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
-    total_ns = @@control_start_monotonic_ns + elapsed_ns
-    {total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
-  end
-
-  def self.virtual_utc : {Int64, Int32}
-    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
-    total_ns = @@control_start_utc_ns.to_i64 + elapsed_ns
-    {@@control_start_utc_s + total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
-  end
-
+  # Yields a `Remote` that can be used to advance virtual time within the block.
+  #
+  # While the block is active, `sleep`, `select ... when timeout(...)`,
+  # `Time.utc`, and `Time.instant` are intercepted so that time stands still
+  # until explicitly advanced via `Remote#advance`.
+  #
+  # ```
+  # TimeControl.control do |remote|
+  #   spawn { sleep 5.minutes; puts "done" }
+  #   remote.advance(5.minutes)
+  # end
+  # ```
   def self.control(& : Remote ->) : Nil
     advance_ch = Channel(Time::Span).new
     done_ch = Channel(Nil).new
@@ -88,7 +46,7 @@ module TimeControl
       timer_loop(advance_ch, done_ch)
     end
 
-    yield Remote.new
+    yield Remote.new(advance_ch, done_ch)
   ensure
     @@enabled = false
     @@timer_loop_fiber = nil
@@ -98,6 +56,105 @@ module TimeControl
     @@advance_channel = nil
     @@done_channel = nil
     @@timers_mutex.synchronize { @@timers.clear }
+  end
+
+  # Controller object yielded by `TimeControl.control`. Used to advance
+  # virtual time from within the control block.
+  class Remote
+    # :nodoc:
+    def initialize(@advance_ch : Channel(Time::Span), @done_ch : Channel(Nil))
+    end
+
+    # Advances virtual time by *duration*.
+    #
+    # Wakes all sleeping fibers and select timeouts that fall within the
+    # advanced window, in chronological order. Blocks until all woken fibers
+    # have had a chance to run before returning.
+    #
+    # ```
+    # remote.advance(5.seconds)
+    # ```
+    def advance(duration : Time::Span) : Nil
+      raise "TimeControl is not enabled" unless TimeControl.enabled?
+      Fiber.yield
+      @advance_ch.send(duration)
+      @done_ch.receive
+    end
+  end
+
+  private enum TimerKind
+    Sleep
+    SelectTimeout
+  end
+
+  private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
+
+  @@enabled : Bool = false
+  @@virtual_now : Time::Instant = Time::Instant.new(0_i64, 0_i32)
+  @@control_start_instant : Time::Instant = Time::Instant.new(0_i64, 0_i32)
+  @@control_start_monotonic_ns : Int64 = 0_i64
+  @@control_start_utc_s : Int64 = 0_i64
+  @@control_start_utc_ns : Int32 = 0_i32
+  @@timers : Array(TimerEntry) = [] of TimerEntry
+  @@timers_mutex : Mutex = Mutex.new
+  @@advance_channel : Channel(Time::Span)? = nil
+  @@done_channel : Channel(Nil)? = nil
+  @@timer_loop_fiber : Fiber? = nil
+  @@timer_loop_thread : Thread? = nil
+
+  # :nodoc:
+  def self.enabled? : Bool
+    @@enabled
+  end
+
+  # :nodoc:
+  def self.virtual_now : Time::Instant
+    @@virtual_now
+  end
+
+  # :nodoc:
+  def self.timer_loop_fiber? : Fiber?
+    @@timer_loop_fiber
+  end
+
+  # :nodoc:
+  def self.timer_loop_thread? : Thread?
+    @@timer_loop_thread
+  end
+
+  # :nodoc:
+  def self.virtual_monotonic : {Int64, Int32}
+    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
+    total_ns = @@control_start_monotonic_ns + elapsed_ns
+    {total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
+  end
+
+  # :nodoc:
+  def self.virtual_utc : {Int64, Int32}
+    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
+    total_ns = @@control_start_utc_ns.to_i64 + elapsed_ns
+    {@@control_start_utc_s + total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
+  end
+
+  # :nodoc:
+  def self.add_sleep(fiber : Fiber, duration : Time::Span) : Nil
+    @@timers_mutex.synchronize do
+      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::Sleep))
+    end
+  end
+
+  # :nodoc:
+  def self.add_select_timeout(fiber : Fiber, duration : Time::Span) : Nil
+    @@timers_mutex.synchronize do
+      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::SelectTimeout))
+    end
+  end
+
+  # :nodoc:
+  def self.cancel_select_timeout(fiber : Fiber) : Nil
+    @@timers_mutex.synchronize do
+      @@timers.reject! { |e| e.fiber.same?(fiber) && e.kind.select_timeout? }
+    end
   end
 
   private def self.timer_loop(advance_ch : Channel(Time::Span), done_ch : Channel(Nil)) : Nil
@@ -147,31 +204,6 @@ module TimeControl
     end
 
     done_ch.send(nil)
-  end
-
-  def self.advance(duration : Time::Span) : Nil
-    raise "TimeControl is not enabled" unless @@enabled
-    Fiber.yield
-    @@advance_channel.not_nil!.send(duration)
-    @@done_channel.not_nil!.receive
-  end
-
-  def self.add_sleep(fiber : Fiber, duration : Time::Span) : Nil
-    @@timers_mutex.synchronize do
-      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::Sleep))
-    end
-  end
-
-  def self.add_select_timeout(fiber : Fiber, duration : Time::Span) : Nil
-    @@timers_mutex.synchronize do
-      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::SelectTimeout))
-    end
-  end
-
-  def self.cancel_select_timeout(fiber : Fiber) : Nil
-    @@timers_mutex.synchronize do
-      @@timers.reject! { |e| e.fiber.same?(fiber) && e.kind.select_timeout? }
-    end
   end
 
   private def self.insert_timer(entry : TimerEntry) : Nil
