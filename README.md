@@ -14,7 +14,7 @@ Add the dependency to your `shard.yml`:
 ```yaml
 dependencies:
   time_control:
-    github: spuun/time_control.cr
+    github: 84codes/time_control.cr
 ```
 
 Then run `shards install`.

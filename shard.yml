@@ -2,7 +2,7 @@ name: time_control
 version: 0.1.0
 
 authors:
-  - Jon Börjesson <jon@spuun.se>
+  - Jon Börjesson <jon@84odes.com>
 
 crystal: '>= 1.19.1'
 
