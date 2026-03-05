@@ -4,6 +4,7 @@ require "channel"
 require "mutex"
 
 require "./time_control/context"
+require "./time_control/controller"
 require "./time_control/core_ext/crystal/system/time"
 require "./time_control/core_ext/crystal/event_loop"
 require "./time_control/core_ext/fiber"
@@ -31,40 +32,6 @@ module TimeControl
 
     def initialize(@count : Int32)
       super("#{@count} timer(s) were still pending when the control block exited")
-    end
-  end
-
-  # Controller object yielded by `TimeControl.control`. Used to advance
-  # virtual time from within the control block.
-  class Controller
-    # :nodoc:
-    def initialize(@ctx : Context)
-    end
-
-    # Advances virtual time by *duration*.
-    #
-    # Wakes all sleeping fibers and select timeouts that fall within the
-    # advanced window, in chronological order. Blocks until all woken fibers
-    # have had a chance to run before returning.
-    #
-    # ```
-    # remote.advance(5.seconds)
-    # ```
-    def advance(duration : Time::Span) : Nil
-      Fiber.yield
-      @ctx.advance(duration)
-    end
-
-    # Advances virtual time to the next pending timer entry.
-    #
-    # Raises if there are no pending timers.
-    #
-    # ```
-    # remote.advance
-    # ```
-    def advance : Nil
-      Fiber.yield
-      @ctx.advance
     end
   end
 
