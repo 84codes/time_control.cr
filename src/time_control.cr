@@ -11,6 +11,20 @@ require "./time_control/core_ext/fiber"
 module TimeControl
   VERSION = "0.1.0"
 
+  class Error < ::Exception
+  end
+
+  class NotEnabledError < Error
+  end
+
+  class PendingTimersError < Error
+    getter count : Int32
+
+    def initialize(@count : Int32)
+      super("#{@count} timer(s) were still pending when the control block exited")
+    end
+  end
+
   # Controller object yielded by `TimeControl.control`. Used to advance
   # virtual time from within the control block.
   class Remote
@@ -42,7 +56,7 @@ module TimeControl
 
   # :nodoc:
   def self.context : Context
-    @@context || raise "TimeControl is not enabled"
+    @@context || raise NotEnabledError.new("TimeControl is not enabled")
   end
 
   # :nodoc:
@@ -79,7 +93,7 @@ module TimeControl
     isolated.try &.wait
     ctx.try &.clear_timers
     if ctx && ctx.leaked_timer_count > 0
-      raise "TimeControl: #{ctx.leaked_timer_count} timer(s) were still pending when the control block exited"
+      raise PendingTimersError.new(ctx.leaked_timer_count)
     end
   end
 end

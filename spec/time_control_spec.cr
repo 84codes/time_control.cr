@@ -189,7 +189,7 @@ describe TimeControl do
   end
 
   it "raises if timers are still pending when the control block exits" do
-    expect_raises(Exception, /1 timer\(s\) were still pending/) do
+    expect_raises(TimeControl::PendingTimersError, /1 timer\(s\) were still pending/) do
       TimeControl.control do |_remote|
         spawn { sleep 1.second }
         Fiber.yield
