@@ -99,6 +99,65 @@ If the `control` block exits while virtual timers are still pending (i.e.
 fibers are sleeping beyond the last `advance`), a `TimeControl::PendingTimersError`
 is raised. This catches specs that forget to advance past all scheduled work.
 
+## How it works
+
+### Monkey patches
+
+**`Crystal::EventLoop` subclasses — `sleep`**
+The event loop's `sleep` is the single point where all fiber sleeps bottom
+out, regardless of whether the caller used `sleep 1.second`, `Channel#receive`
+with a timeout, or any other higher-level API. Patching it here means no
+call-site changes are needed in user code. A compile-time macro iterates
+`Crystal::EventLoop.all_subclasses` and patches every subclass that defines
+its own `sleep`, so the correct implementation is covered no matter which
+event loop backend is compiled in.
+
+**`Fiber#timeout` and `Fiber#cancel_timeout`**
+These are the internal hooks Crystal uses for `select … when timeout(…)`.
+Patching them registers (or removes) a virtual select-timeout entry instead
+of arming the real event loop timer, so timeout branches fire at the right
+virtual instant.
+
+**`Crystal::System::Time.clock_gettime`**
+All monotonic time reads — including `Time::Instant.now` and the durations
+used internally by the scheduler — go through this private method. Returning
+a virtual `Timespec` here makes `Time.instant` and `sleep` duration tracking
+reflect virtual time rather than wall-clock time.
+
+**`Crystal::System::Time.compute_utc_seconds_and_nanoseconds`**
+Patching this makes `Time.utc` return the virtual UTC time derived from the
+same virtual offset, so timestamps created inside a `control` block are
+consistent with the advanced clock.
+
+### Isolated execution context
+
+`TimeControl.control` starts a dedicated `Fiber::ExecutionContext::Isolated`
+— a single-threaded execution context that owns the timer loop. Using an
+isolated context is important for two reasons:
+
+1. **Thread identity.** The timer loop thread must be distinguishable from all
+   other threads so that the monkey patches can let it bypass interception.
+   The timer loop calls `sleep` (real sleep, to yield between batches of woken
+   fibers) and reads real monotonic time during `Context` initialisation; both
+   would recurse infinitely if intercepted. The patches check
+   `Thread.current.same?(ctx.timer_loop_thread)` and fall through to the
+   original implementation when on that thread.
+
+2. **Controlled scheduling.** An isolated context has its own scheduler and
+   runs independently of the default execution context. This means `advance`
+   can block the calling fiber on a channel receive while the timer loop
+   processes woken fibers without either side starving the other.
+
+When a fiber calls `sleep` or registers a `select … when timeout(…)`, the
+monkey patch suspends it and records a virtual timer entry. When
+`remote.advance(duration)` is called, it sends the duration over a channel to
+the timer loop fiber, which wakes all entries whose `wake_at <= virtual_now +
+duration` in chronological order. After each woken fiber is enqueued, the
+timer loop does a real 1 ms sleep to give the fiber a chance to run and
+register any chained sleep before the loop rechecks. Once all timers in the
+window are processed, `virtual_now` is set to the target and a done signal is
+sent back to the caller.
+
 ## License
 
 MIT
