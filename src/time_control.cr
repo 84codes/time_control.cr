@@ -25,8 +25,6 @@ module TimeControl
   def self.control(& : Remote ->) : Nil
     advance_ch = Channel(Time::Span).new
     done_ch = Channel(Nil).new
-    @@advance_channel = advance_ch
-    @@done_channel = done_ch
 
     mono = Crystal::System::Time.real_monotonic
     @@control_start_monotonic_ns = mono[0] * 1_000_000_000_i64 + mono[1]
@@ -40,7 +38,7 @@ module TimeControl
     @@timers.clear
     @@enabled = true
 
-    Fiber::ExecutionContext::Isolated.new("time-control") do
+    ctx = Fiber::ExecutionContext::Isolated.new("time-control") do
       @@timer_loop_fiber = Fiber.current
       @@timer_loop_thread = Thread.current
       timer_loop(advance_ch, done_ch)
@@ -52,9 +50,7 @@ module TimeControl
     @@timer_loop_fiber = nil
     @@timer_loop_thread = nil
     advance_ch.try &.close
-    done_ch.try &.receive?
-    @@advance_channel = nil
-    @@done_channel = nil
+    ctx.try &.wait
     @@timers_mutex.synchronize { @@timers.clear }
   end
 
@@ -97,8 +93,6 @@ module TimeControl
   @@control_start_utc_ns : Int32 = 0_i32
   @@timers : Array(TimerEntry) = [] of TimerEntry
   @@timers_mutex : Mutex = Mutex.new
-  @@advance_channel : Channel(Time::Span)? = nil
-  @@done_channel : Channel(Nil)? = nil
   @@timer_loop_fiber : Fiber? = nil
   @@timer_loop_thread : Thread? = nil
 
@@ -195,8 +189,6 @@ module TimeControl
       break unless entry
       enqueue_entry(entry)
     end
-
-    done_ch.send(nil)
   end
 
   private def self.insert_timer(entry : TimerEntry) : Nil
