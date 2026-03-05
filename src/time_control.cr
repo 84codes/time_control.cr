@@ -1,0 +1,130 @@
+require "crystal/system/time"
+require "fiber"
+require "channel"
+require "mutex"
+
+require "./time_control/core_ext/crystal/event_loop/polling"
+require "./time_control/core_ext/fiber"
+
+module TimeControl
+  VERSION = "0.1.0"
+
+  class Remote
+    def advance(duration : Time::Span) : Nil
+      TimeControl.advance(duration)
+    end
+  end
+
+  private enum TimerKind
+    Sleep
+    SelectTimeout
+  end
+
+  private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
+
+  @@enabled : Bool = false
+  @@virtual_now : Time::Instant = Time::Instant.new(0_i64, 0_i32)
+  @@timers : Array(TimerEntry) = [] of TimerEntry
+  @@timers_mutex : Mutex = Mutex.new
+  @@advance_channel : Channel(Time::Span)? = nil
+  @@done_channel : Channel(Nil)? = nil
+  @@timer_loop_fiber : Fiber? = nil
+
+  def self.enabled? : Bool
+    @@enabled
+  end
+
+  def self.virtual_now : Time::Instant
+    @@virtual_now
+  end
+
+  def self.timer_loop_fiber? : Fiber?
+    @@timer_loop_fiber
+  end
+
+  def self.control(& : Remote ->) : Nil
+    advance_ch = Channel(Time::Span).new
+    done_ch = Channel(Nil).new
+    @@advance_channel = advance_ch
+    @@done_channel = done_ch
+    @@virtual_now = Crystal::System::Time.instant
+    @@timers.clear
+    @@enabled = true
+
+    Fiber::ExecutionContext::Isolated.new("time-control") do
+      @@timer_loop_fiber = Fiber.current
+      timer_loop(advance_ch, done_ch)
+    end
+
+    yield Remote.new
+  ensure
+    @@enabled = false
+    @@timer_loop_fiber = nil
+    advance_ch.try &.close
+    @@advance_channel = nil
+    @@done_channel = nil
+    @@timers_mutex.synchronize { @@timers.clear }
+  end
+
+  private def self.timer_loop(advance_ch : Channel(Time::Span), done_ch : Channel(Nil)) : Nil
+    while duration = advance_ch.receive?
+      target = @@virtual_now + duration
+
+      loop do
+        entry = @@timers_mutex.synchronize do
+          e = @@timers.first?
+          (e && e.wake_at <= target) ? @@timers.shift : nil
+        end
+
+        break unless entry
+
+        @@virtual_now = entry.wake_at
+
+        case entry.kind
+        in .sleep?
+          entry.fiber.enqueue
+        in .select_timeout?
+          if select_action = entry.fiber.timeout_select_action
+            entry.fiber.timeout_select_action = nil
+            entry.fiber.enqueue if select_action.time_expired?
+          end
+        end
+
+        sleep 1.millisecond
+      end
+
+      @@virtual_now = target
+      done_ch.send(nil)
+    end
+  end
+
+  def self.advance(duration : Time::Span) : Nil
+    raise "TimeControl is not enabled" unless @@enabled
+    Fiber.yield
+    @@advance_channel.not_nil!.send(duration)
+    @@done_channel.not_nil!.receive
+  end
+
+  def self.add_sleep(fiber : Fiber, duration : Time::Span) : Nil
+    @@timers_mutex.synchronize do
+      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::Sleep))
+    end
+  end
+
+  def self.add_select_timeout(fiber : Fiber, duration : Time::Span) : Nil
+    @@timers_mutex.synchronize do
+      insert_timer(TimerEntry.new(fiber, @@virtual_now + duration, TimerKind::SelectTimeout))
+    end
+  end
+
+  def self.cancel_select_timeout(fiber : Fiber) : Nil
+    @@timers_mutex.synchronize do
+      @@timers.reject! { |e| e.fiber.same?(fiber) && e.kind.select_timeout? }
+    end
+  end
+
+  private def self.insert_timer(entry : TimerEntry) : Nil
+    idx = @@timers.bsearch_index { |e| e.wake_at >= entry.wake_at } || @@timers.size
+    @@timers.insert(idx, entry)
+  end
+end
