@@ -3,11 +3,6 @@ module TimeControl
   abstract class Error < ::Exception
   end
 
-  # Raised when a `TimeControl` operation is attempted outside of a
-  # `TimeControl.control` block.
-  class NotEnabledError < Error
-  end
-
   # Raised when the `TimeControl.control` block exits with virtual timers
   # still pending, indicating that not all scheduled sleeps or timeouts
   # were advanced past.
