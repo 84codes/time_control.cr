@@ -29,8 +29,7 @@ module TimeControl
     # ```
     def advance(duration : Time::Span) : Nil
       Fiber.yield
-      @ctx.advance_ch.send(duration)
-      @ctx.done_ch.receive
+      @ctx.advance(duration)
     end
   end
 
@@ -76,7 +75,7 @@ module TimeControl
     yield Remote.new(ctx)
   ensure
     @@context = nil
-    ctx.try { |c| c.advance_ch.close }
+    ctx.try &.stop
     isolated.try &.wait
     ctx.try &.clear_timers
   end

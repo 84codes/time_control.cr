@@ -12,8 +12,8 @@ module TimeControl
     property timer_loop_fiber : Fiber?
     property timer_loop_thread : Thread?
 
-    getter advance_ch : Channel(Time::Span)
-    getter done_ch : Channel(Nil)
+    @advance_ch : Channel(Time::Span)
+    @done_ch : Channel(Nil)
 
     @control_start_instant : Time::Instant
     @control_start_monotonic_ns : Int64
@@ -67,6 +67,15 @@ module TimeControl
       @timers_mutex.synchronize do
         @timers.reject! { |e| e.fiber.same?(fiber) && e.kind.select_timeout? }
       end
+    end
+
+    def advance(duration : Time::Span) : Nil
+      @advance_ch.send(duration)
+      @done_ch.receive
+    end
+
+    def stop : Nil
+      @advance_ch.close
     end
 
     def run : Nil
