@@ -69,6 +69,14 @@ module TimeControl
   end
 
   # :nodoc:
+  def self.intercept(& : Context ->) : Nil
+    ctx = @@context
+    return unless ctx
+    return if ::Thread.current.same?(ctx.timer_loop_thread)
+    yield ctx
+  end
+
+  # :nodoc:
   def self.virtual_now : Time::Instant
     context.virtual_now
   end
