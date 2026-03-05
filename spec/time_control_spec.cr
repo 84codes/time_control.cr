@@ -66,7 +66,6 @@ describe TimeControl do
     end
   end
 
-
   it "advances time past a sleeping fiber" do
     result = Channel(Time::Instant).new
 
@@ -256,7 +255,6 @@ describe TimeControl do
         results.receive.should eq("outer")
       end
     end
-
 
     it "wakes a chain of spawned fibers each sleeping in sequence" do
       # Each level wakes, spawns the next level, then the next level sleeps.
