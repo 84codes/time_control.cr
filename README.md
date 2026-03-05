@@ -29,6 +29,10 @@ Wrap your spec in `TimeControl.control` and use `remote.advance` to move
 virtual time forward. All fibers sleeping or waiting on a timeout are woken
 in chronological order as time advances.
 
+`remote.advance(duration)` advances by a fixed amount. `remote.advance` (no
+argument) advances exactly to the next pending timer, which is useful when you
+don't want to hard-code durations in your spec.
+
 ### Controlling sleep
 
 ```crystal
@@ -89,6 +93,29 @@ it "stamps events with virtual time" do
 
     remote.advance(1.minute)
     (Time.utc - t0).should eq(1.minute)
+  end
+end
+```
+
+### Advancing to the next timer
+
+`remote.advance` (no argument) advances exactly to the next pending timer.
+Useful when the exact delay doesn't matter to the spec:
+
+```crystal
+it "retries after the backoff period" do
+  attempts = Channel(Int32).new(2)
+
+  TimeControl.control do |remote|
+    spawn do
+      attempts.send(1)
+      sleep 30.seconds  # backoff — exact value doesn't matter to the spec
+      attempts.send(2)
+    end
+
+    attempts.receive.should eq(1)
+    remote.advance           # skip the backoff, whatever it is
+    attempts.receive.should eq(2)
   end
 end
 ```
