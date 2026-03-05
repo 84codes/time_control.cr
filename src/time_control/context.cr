@@ -104,10 +104,6 @@ module TimeControl
       end
     end
 
-    def clear_timers : Nil
-      @timers_mutex.synchronize { @timers.clear }
-    end
-
     private def elapsed_ns : Int64
       (@virtual_now - @control_start_instant).total_nanoseconds.to_i64
     end
