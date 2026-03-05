@@ -5,7 +5,7 @@ require "mutex"
 
 require "./time_control/context"
 require "./time_control/core_ext/crystal/system/time"
-require "./time_control/core_ext/crystal/event_loop/polling"
+require "./time_control/core_ext/crystal/event_loop"
 require "./time_control/core_ext/fiber"
 
 module TimeControl
