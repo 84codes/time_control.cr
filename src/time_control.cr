@@ -177,7 +177,7 @@ module TimeControl
 
         @@virtual_now = entry.wake_at
         enqueue_entry(entry)
-        sleep 1.millisecond
+        sleep 1.millisecond # allow the woken fiber to run and register any chained sleep before rechecking
       end
 
       @@virtual_now = target
