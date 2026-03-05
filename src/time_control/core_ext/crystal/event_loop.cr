@@ -6,7 +6,7 @@
       # :nodoc:
       def sleep(duration : ::Time::Span) : Nil
         if duration.total_nanoseconds > 0
-          TimeControl.intercept do |ctx|
+          TimeControl.when_controlling do |ctx|
             ctx.add_sleep(Fiber.current, duration)
             Fiber.suspend
             return

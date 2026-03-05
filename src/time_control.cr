@@ -16,7 +16,7 @@ module TimeControl
   @@context : Context? = nil
 
   # :nodoc:
-  def self.intercept(& : Context ->) : Nil
+  def self.when_controlling(& : Context ->) : Nil
     ctx = @@context
     return unless ctx
     return if ::Thread.current.same?(ctx.timer_loop_thread)
