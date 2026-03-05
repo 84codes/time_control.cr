@@ -3,6 +3,7 @@ require "fiber"
 require "channel"
 require "mutex"
 
+require "./time_control/core_ext/crystal/system/time"
 require "./time_control/core_ext/crystal/event_loop/polling"
 require "./time_control/core_ext/fiber"
 
@@ -24,11 +25,16 @@ module TimeControl
 
   @@enabled : Bool = false
   @@virtual_now : Time::Instant = Time::Instant.new(0_i64, 0_i32)
+  @@control_start_instant : Time::Instant = Time::Instant.new(0_i64, 0_i32)
+  @@control_start_monotonic_ns : Int64 = 0_i64
+  @@control_start_utc_s : Int64 = 0_i64
+  @@control_start_utc_ns : Int32 = 0_i32
   @@timers : Array(TimerEntry) = [] of TimerEntry
   @@timers_mutex : Mutex = Mutex.new
   @@advance_channel : Channel(Time::Span)? = nil
   @@done_channel : Channel(Nil)? = nil
   @@timer_loop_fiber : Fiber? = nil
+  @@timer_loop_thread : Thread? = nil
 
   def self.enabled? : Bool
     @@enabled
@@ -42,17 +48,43 @@ module TimeControl
     @@timer_loop_fiber
   end
 
+  def self.timer_loop_thread? : Thread?
+    @@timer_loop_thread
+  end
+
+  def self.virtual_monotonic : {Int64, Int32}
+    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
+    total_ns = @@control_start_monotonic_ns + elapsed_ns
+    {total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
+  end
+
+  def self.virtual_utc : {Int64, Int32}
+    elapsed_ns = (@@virtual_now - @@control_start_instant).total_nanoseconds.to_i64
+    total_ns = @@control_start_utc_ns.to_i64 + elapsed_ns
+    {@@control_start_utc_s + total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
+  end
+
   def self.control(& : Remote ->) : Nil
     advance_ch = Channel(Time::Span).new
     done_ch = Channel(Nil).new
     @@advance_channel = advance_ch
     @@done_channel = done_ch
-    @@virtual_now = Crystal::System::Time.instant
+
+    mono = Crystal::System::Time.real_monotonic
+    @@control_start_monotonic_ns = mono[0] * 1_000_000_000_i64 + mono[1]
+    @@virtual_now = Time::Instant.new(mono[0], mono[1])
+    @@control_start_instant = @@virtual_now
+
+    utc = Crystal::System::Time.real_compute_utc_seconds_and_nanoseconds
+    @@control_start_utc_s = utc[0]
+    @@control_start_utc_ns = utc[1]
+
     @@timers.clear
     @@enabled = true
 
     Fiber::ExecutionContext::Isolated.new("time-control") do
       @@timer_loop_fiber = Fiber.current
+      @@timer_loop_thread = Thread.current
       timer_loop(advance_ch, done_ch)
     end
 
@@ -60,6 +92,7 @@ module TimeControl
   ensure
     @@enabled = false
     @@timer_loop_fiber = nil
+    @@timer_loop_thread = nil
     advance_ch.try &.close
     @@advance_channel = nil
     @@done_channel = nil

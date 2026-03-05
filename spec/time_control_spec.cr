@@ -1,6 +1,72 @@
 require "./spec_helper"
 
 describe TimeControl do
+  describe "virtual Time.now and Time.instant" do
+    it "freezes Time.utc while no time is advanced" do
+      TimeControl.control do |_remote|
+        t0 = Time.utc
+        Fiber.yield
+        (Time.utc - t0).should eq(Time::Span.zero)
+      end
+    end
+
+    it "freezes Time.instant while no time is advanced" do
+      TimeControl.control do |_remote|
+        t0 = Time.instant
+        Fiber.yield
+        (Time.instant - t0).should eq(Time::Span.zero)
+      end
+    end
+
+    it "advances Time.utc by the duration passed to remote.advance" do
+      TimeControl.control do |remote|
+        t0 = Time.utc
+        remote.advance(5.seconds)
+        (Time.utc - t0).should eq(5.seconds)
+      end
+    end
+
+    it "advances Time.instant by the duration passed to remote.advance" do
+      TimeControl.control do |remote|
+        t0 = Time.instant
+        remote.advance(5.seconds)
+        (Time.instant - t0).should eq(5.seconds)
+      end
+    end
+
+    it "Time.utc reflects the virtual instant at which a sleeping fiber wakes" do
+      result = Channel(Time).new
+
+      TimeControl.control do |remote|
+        t0 = Time.utc
+        spawn do
+          sleep 3.seconds
+          result.send(Time.utc)
+        end
+
+        remote.advance(5.seconds)
+        woke_at = result.receive
+        (woke_at - t0).should eq(3.seconds)
+      end
+    end
+
+    it "Time.instant reflects the virtual instant at which a sleeping fiber wakes" do
+      result = Channel(Time::Span).new
+
+      TimeControl.control do |remote|
+        t0 = Time.instant
+        spawn do
+          sleep 3.seconds
+          result.send(Time.instant - t0)
+        end
+
+        remote.advance(5.seconds)
+        result.receive.should eq(3.seconds)
+      end
+    end
+  end
+
+
   it "advances time past a sleeping fiber" do
     result = Channel(Time::Instant).new
 
