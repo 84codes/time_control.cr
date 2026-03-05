@@ -2,21 +2,21 @@ class Fiber
   # :nodoc:
   def timeout(timeout : Time::Span, select_action : Channel::TimeoutAction) : Nil
     @timeout_select_action = select_action
-    if TimeControl.enabled?
-      TimeControl.context.add_select_timeout(self, timeout)
-    else
-      timeout_event.add(timeout)
+    TimeControl.intercept do |ctx|
+      ctx.add_select_timeout(self, timeout)
+      return
     end
+    timeout_event.add(timeout)
   end
 
   # :nodoc:
   def cancel_timeout : Nil
     return unless @timeout_select_action
     @timeout_select_action = nil
-    if TimeControl.enabled?
-      TimeControl.context.cancel_select_timeout(self)
-    else
-      @timeout_event.try &.delete
+    TimeControl.intercept do |ctx|
+      ctx.cancel_select_timeout(self)
+      return
     end
+    @timeout_event.try &.delete
   end
 end
