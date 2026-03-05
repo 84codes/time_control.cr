@@ -39,13 +39,11 @@ module TimeControl
     end
 
     def virtual_monotonic : {Int64, Int32}
-      elapsed_ns = (@virtual_now - @control_start_instant).total_nanoseconds.to_i64
       total_ns = @control_start_monotonic_ns + elapsed_ns
       {total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
     end
 
     def virtual_utc : {Int64, Int32}
-      elapsed_ns = (@virtual_now - @control_start_instant).total_nanoseconds.to_i64
       total_ns = @control_start_utc_ns.to_i64 + elapsed_ns
       {@control_start_utc_s + total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
     end
@@ -108,6 +106,10 @@ module TimeControl
 
     def clear_timers : Nil
       @timers_mutex.synchronize { @timers.clear }
+    end
+
+    private def elapsed_ns : Int64
+      (@virtual_now - @control_start_instant).total_nanoseconds.to_i64
     end
 
     private def enqueue_entry(entry : TimerEntry) : Nil
