@@ -227,8 +227,12 @@ describe TimeControl do
   it "does not advance virtual time for sleep(0)" do
     TimeControl.control do |_remote|
       t0 = TimeControl.virtual_now
+      t0_utc = Time.utc
+      t0_instant = Time.instant
       sleep 0.seconds
       TimeControl.virtual_now.should eq(t0)
+      Time.utc.should eq(t0_utc)
+      Time.instant.should eq(t0_instant)
     end
   end
 
