@@ -18,7 +18,7 @@ A Crystal shard (library) that hijacks Crystal's event loop to control time in s
 
 ### How it works
 
-`TimeControl.control { |remote| ... }` enables fake time for the duration of the block. The block receives a `Remote` object used to call `remote.advance(duration)`.
+`TimeControl.control { |remote| ... }` enables fake time for the duration of the block. The block receives a `Controller` object used to call `remote.advance(duration)`.
 
 When enabled:
 - `Crystal::EventLoop::Polling#sleep` is monkey-patched to intercept non-zero sleeps: sleeping fibers are registered in a virtual timer queue inside `Context` instead of the real event loop, then suspended via `Fiber.suspend`.
@@ -32,7 +32,7 @@ When enabled:
 
 The public API consists of:
 - `TimeControl.control` — the main entry point
-- `Remote#advance` — advances virtual time
+- `Controller#advance` — advances virtual time
 - `TimeControl::Error`, `TimeControl::NotEnabledError`, `TimeControl::PendingTimersError` — error classes
 
 Everything else is marked `# :nodoc:` or `private`. Do not add doc comments to internal methods, patch methods, or instance variables.

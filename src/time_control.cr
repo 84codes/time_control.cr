@@ -36,7 +36,7 @@ module TimeControl
 
   # Controller object yielded by `TimeControl.control`. Used to advance
   # virtual time from within the control block.
-  class Remote
+  class Controller
     # :nodoc:
     def initialize(@ctx : Context)
     end
@@ -98,7 +98,7 @@ module TimeControl
   #
   # Intercepts `sleep`, `select ... when timeout(...)`,
   # `Time.utc`, and `Time.instant` so that time stands still until
-  # explicitly advanced via `Remote#advance`.
+  # explicitly advanced via `Controller#advance`.
   #
   # ```
   # TimeControl.control do |remote|
@@ -106,7 +106,7 @@ module TimeControl
   #   remote.advance(5.minutes)
   # end
   # ```
-  def self.control(& : Remote ->) : Nil
+  def self.control(& : Controller ->) : Nil
     ctx = Context.new
     @@context = ctx
 
@@ -115,7 +115,7 @@ module TimeControl
       ctx.run
     end
 
-    yield Remote.new(ctx)
+    yield Controller.new(ctx)
   ensure
     @@context = nil
     ctx.try &.stop

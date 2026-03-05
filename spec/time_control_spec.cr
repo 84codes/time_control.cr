@@ -3,7 +3,7 @@ require "./spec_helper"
 describe TimeControl do
   describe "virtual Time.now and Time.instant" do
     it "freezes Time.utc while no time is advanced" do
-      TimeControl.control do |_remote|
+      TimeControl.control do |_controller|
         t0 = Time.utc
         Fiber.yield
         (Time.utc - t0).should eq(Time::Span.zero)
@@ -11,25 +11,25 @@ describe TimeControl do
     end
 
     it "freezes Time.instant while no time is advanced" do
-      TimeControl.control do |_remote|
+      TimeControl.control do |_controller|
         t0 = Time.instant
         Fiber.yield
         (Time.instant - t0).should eq(Time::Span.zero)
       end
     end
 
-    it "advances Time.utc by the duration passed to remote.advance" do
-      TimeControl.control do |remote|
+    it "advances Time.utc by the duration passed to controller.advance" do
+      TimeControl.control do |controller|
         t0 = Time.utc
-        remote.advance(5.seconds)
+        controller.advance(5.seconds)
         (Time.utc - t0).should eq(5.seconds)
       end
     end
 
-    it "advances Time.instant by the duration passed to remote.advance" do
-      TimeControl.control do |remote|
+    it "advances Time.instant by the duration passed to controller.advance" do
+      TimeControl.control do |controller|
         t0 = Time.instant
-        remote.advance(5.seconds)
+        controller.advance(5.seconds)
         (Time.instant - t0).should eq(5.seconds)
       end
     end
@@ -37,14 +37,14 @@ describe TimeControl do
     it "Time.utc reflects the virtual instant at which a sleeping fiber wakes" do
       result = Channel(Time).new
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         t0 = Time.utc
         spawn do
           sleep 3.seconds
           result.send(Time.utc)
         end
 
-        remote.advance(5.seconds)
+        controller.advance(5.seconds)
         woke_at = result.receive
         (woke_at - t0).should eq(3.seconds)
       end
@@ -53,14 +53,14 @@ describe TimeControl do
     it "Time.instant reflects the virtual instant at which a sleeping fiber wakes" do
       result = Channel(Time::Span).new
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         t0 = Time.instant
         spawn do
           sleep 3.seconds
           result.send(Time.instant - t0)
         end
 
-        remote.advance(5.seconds)
+        controller.advance(5.seconds)
         result.receive.should eq(3.seconds)
       end
     end
@@ -69,13 +69,13 @@ describe TimeControl do
   it "advances time past a sleeping fiber" do
     result = Channel(Time::Instant).new
 
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       spawn do
         sleep 1.second
         result.send(TimeControl.virtual_now)
       end
 
-      remote.advance(2.seconds)
+      controller.advance(2.seconds)
       woke_at = result.receive
 
       (woke_at - TimeControl.virtual_now).total_seconds.should be_close(-1.0, 0.001)
@@ -83,19 +83,19 @@ describe TimeControl do
   end
 
   it "advance with no args advances to the next pending timer" do
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       t0 = Time.instant
       spawn { sleep 3.seconds }
 
-      remote.advance
+      controller.advance
       (Time.instant - t0).should eq(3.seconds)
     end
   end
 
   it "advance with no args raises when there are no pending timers" do
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       expect_raises(Exception, "no pending timers") do
-        remote.advance
+        controller.advance
       end
     end
   end
@@ -104,7 +104,7 @@ describe TimeControl do
     order = Channel(Int32).new(3)
     done = Channel(Nil).new
 
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       spawn { sleep 2.seconds; order.send(2) }
       spawn { sleep 1.second; order.send(1) }
       spawn do
@@ -113,7 +113,7 @@ describe TimeControl do
         done.send(nil)
       end
 
-      remote.advance(3.seconds)
+      controller.advance(3.seconds)
       done.receive
 
       order.receive.should eq(1)
@@ -126,7 +126,7 @@ describe TimeControl do
     ch = Channel(Int32).new
     result = Channel(Symbol).new
 
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       spawn do
         select
         when ch.receive
@@ -136,7 +136,7 @@ describe TimeControl do
         end
       end
 
-      remote.advance(2.seconds)
+      controller.advance(2.seconds)
       result.receive.should eq(:timed_out)
     end
   end
@@ -145,7 +145,7 @@ describe TimeControl do
     ch = Channel(Int32).new
     result = Channel(Symbol).new
 
-    TimeControl.control do |_remote|
+    TimeControl.control do |_controller|
       spawn do
         select
         when ch.receive
@@ -164,7 +164,7 @@ describe TimeControl do
     ch = Channel(Int32).new
     result = Channel(Symbol).new
 
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       spawn do
         select
         when ch.receive
@@ -174,11 +174,11 @@ describe TimeControl do
         end
       end
 
-      remote.advance(1.second)
+      controller.advance(1.second)
       ch.send(42)
       result.receive.should eq(:received)
 
-      remote.advance(2.seconds)
+      controller.advance(2.seconds)
 
       select
       when result.receive
@@ -191,7 +191,7 @@ describe TimeControl do
   it "handles chained sleeps within a single advance" do
     steps = Channel(Int32).new(2)
 
-    TimeControl.control do |remote|
+    TimeControl.control do |controller|
       spawn do
         sleep 1.second
         steps.send(1)
@@ -199,7 +199,7 @@ describe TimeControl do
         steps.send(2)
       end
 
-      remote.advance(2.seconds)
+      controller.advance(2.seconds)
       steps.receive.should eq(1)
       steps.receive.should eq(2)
     end
@@ -213,7 +213,7 @@ describe TimeControl do
 
   it "raises if timers are still pending when the control block exits" do
     ex = expect_raises(TimeControl::PendingTimersError, /1 timer\(s\) were still pending/) do
-      TimeControl.control do |_remote|
+      TimeControl.control do |_controller|
         spawn { sleep 1.second }
         Fiber.yield
       end
@@ -224,25 +224,25 @@ describe TimeControl do
   describe "real time moves fast" do
     it "a long sleep returns near-instantly in real time" do
       t0 = Time.instant
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         spawn { sleep 1.hour }
-        remote.advance(1.hour)
+        controller.advance(1.hour)
       end
       (Time.instant - t0).should be_close(Time::Span.zero, 1.second)
     end
 
     it "many long sleeps return near-instantly in real time" do
       t0 = Time.instant
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         10.times { spawn { sleep 1.hour } }
-        remote.advance(1.hour)
+        controller.advance(1.hour)
       end
       (Time.instant - t0).should be_close(Time::Span.zero, 1.second)
     end
   end
 
   it "does not advance virtual time for sleep(0)" do
-    TimeControl.control do |_remote|
+    TimeControl.control do |_controller|
       t0 = TimeControl.virtual_now
       t0_utc = Time.utc
       t0_instant = Time.instant
@@ -257,7 +257,7 @@ describe TimeControl do
     it "inner spawn completes before the outer spawn that spawned it" do
       results = Channel(String).new(2)
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         spawn do
           sleep 1.second
           spawn do
@@ -268,7 +268,7 @@ describe TimeControl do
           results.send("outer")
         end
 
-        remote.advance(3.seconds)
+        controller.advance(3.seconds)
         results.receive.should eq("inner")
         results.receive.should eq("outer")
       end
@@ -280,7 +280,7 @@ describe TimeControl do
       # during the advance itself.
       results = Channel(Int32).new(3)
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         spawn do
           sleep 1.second
           results.send(1)
@@ -294,7 +294,7 @@ describe TimeControl do
           end
         end
 
-        remote.advance(3.seconds)
+        controller.advance(3.seconds)
 
         results.receive.should eq(1)
         results.receive.should eq(2)
@@ -309,7 +309,7 @@ describe TimeControl do
       inner_result = Channel(Symbol).new
       trigger = Channel(Int32).new
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         spawn do
           select
           when trigger.receive
@@ -327,10 +327,10 @@ describe TimeControl do
           end
         end
 
-        remote.advance(1.seconds)
+        controller.advance(1.seconds)
         outer_result.receive.should eq(:timed_out)
 
-        remote.advance(1.seconds)
+        controller.advance(1.seconds)
         inner_result.receive.should eq(:timed_out)
       end
     end
@@ -339,7 +339,7 @@ describe TimeControl do
       results = Channel(String).new(3)
       trigger = Channel(Nil).new
 
-      TimeControl.control do |remote|
+      TimeControl.control do |controller|
         spawn do
           sleep 1.second
           results.send("outer slept")
@@ -354,10 +354,10 @@ describe TimeControl do
           end
         end
 
-        remote.advance(1.seconds)
+        controller.advance(1.seconds)
         results.receive.should eq("outer slept")
 
-        remote.advance(1.seconds)
+        controller.advance(1.seconds)
         results.receive.should eq("inner timed out")
       end
     end

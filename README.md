@@ -25,11 +25,11 @@ Then run `shards install`.
 require "time_control"
 ```
 
-Wrap your spec in `TimeControl.control` and use `remote.advance` to move
+Wrap your spec in `TimeControl.control` and use `controller.advance` to move
 virtual time forward. All fibers sleeping or waiting on a timeout are woken
 in chronological order as time advances.
 
-`remote.advance(duration)` advances by a fixed amount. `remote.advance` (no
+`controller.advance(duration)` advances by a fixed amount. `controller.advance` (no
 argument) advances exactly to the next pending timer, which is useful when you
 don't want to hard-code durations in your spec.
 
@@ -39,14 +39,14 @@ don't want to hard-code durations in your spec.
 it "processes a job after its scheduled delay" do
   results = Channel(String).new
 
-  TimeControl.control do |remote|
+  TimeControl.control do |controller|
     spawn do
       sleep 5.minutes
       results.send("job done")
     end
 
     # Nothing has happened yet — real time hasn't moved
-    remote.advance(5.minutes)
+    controller.advance(5.minutes)
 
     results.receive.should eq("job done")
   end
@@ -60,7 +60,7 @@ it "times out when no message arrives in time" do
   ch = Channel(String).new
   result = Channel(Symbol).new
 
-  TimeControl.control do |remote|
+  TimeControl.control do |controller|
     spawn do
       select
       when ch.receive
@@ -70,7 +70,7 @@ it "times out when no message arrives in time" do
       end
     end
 
-    remote.advance(1.second)
+    controller.advance(1.second)
     result.receive.should eq(:timed_out)
   end
 end
@@ -79,11 +79,11 @@ end
 ### Controlling Time.utc and Time.instant
 
 `Time.utc` and `Time.instant` are frozen at the moment `control` is entered
-and only advance when `remote.advance` is called.
+and only advance when `controller.advance` is called.
 
 ```crystal
 it "stamps events with virtual time" do
-  TimeControl.control do |remote|
+  TimeControl.control do |controller|
     t0 = Time.utc
 
     spawn do
@@ -91,7 +91,7 @@ it "stamps events with virtual time" do
       # Time.utc here reflects exactly when the fiber woke — t0 + 30s
     end
 
-    remote.advance(1.minute)
+    controller.advance(1.minute)
     (Time.utc - t0).should eq(1.minute)
   end
 end
@@ -99,14 +99,14 @@ end
 
 ### Advancing to the next timer
 
-`remote.advance` (no argument) advances exactly to the next pending timer.
+`controller.advance` (no argument) advances exactly to the next pending timer.
 Useful when the exact delay doesn't matter to the spec:
 
 ```crystal
 it "retries after the backoff period" do
   attempts = Channel(Int32).new(2)
 
-  TimeControl.control do |remote|
+  TimeControl.control do |controller|
     spawn do
       attempts.send(1)
       sleep 30.seconds  # backoff — exact value doesn't matter to the spec
@@ -114,7 +114,7 @@ it "retries after the backoff period" do
     end
 
     attempts.receive.should eq(1)
-    remote.advance           # skip the backoff, whatever it is
+    controller.advance           # skip the backoff, whatever it is
     attempts.receive.should eq(2)
   end
 end
@@ -177,7 +177,7 @@ isolated context is important for two reasons:
 
 When a fiber calls `sleep` or registers a `select … when timeout(…)`, the
 monkey patch suspends it and records a virtual timer entry. When
-`remote.advance(duration)` is called, it sends the duration over a channel to
+`controller.advance(duration)` is called, it sends the duration over a channel to
 the timer loop fiber, which wakes all entries whose `wake_at <= virtual_now +
 duration` in chronological order. After each woken fiber is enqueued, the
 timer loop does a real 1 ms sleep to give the fiber a chance to run and
