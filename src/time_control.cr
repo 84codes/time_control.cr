@@ -98,7 +98,6 @@ module TimeControl
     @@context = ctx
 
     isolated = Fiber::ExecutionContext::Isolated.new("time-control") do
-      ctx.timer_loop_fiber = Fiber.current
       ctx.timer_loop_thread = Thread.current
       ctx.run
     end

@@ -8,7 +8,6 @@ module TimeControl
     private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
 
     property virtual_now : Time::Instant
-    property timer_loop_fiber : Fiber?
     property timer_loop_thread : Thread?
     getter leaked_timer_count : Int32 = 0
 
