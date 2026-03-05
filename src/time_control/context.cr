@@ -125,7 +125,7 @@ module TimeControl
     end
 
     private def insert_timer(entry : TimerEntry) : Nil
-      idx = @timers.bsearch_index { |e| e.wake_at >= entry.wake_at } || @timers.size
+      idx = @timers.bsearch_index { |e| e.wake_at > entry.wake_at } || @timers.size
       @timers.insert(idx, entry)
     end
   end
