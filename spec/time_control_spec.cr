@@ -188,6 +188,12 @@ describe TimeControl do
     end
   end
 
+  it "raises NotEnabledError when accessed outside a control block" do
+    expect_raises(TimeControl::NotEnabledError) do
+      TimeControl.virtual_now
+    end
+  end
+
   it "raises if timers are still pending when the control block exits" do
     expect_raises(TimeControl::PendingTimersError, /1 timer\(s\) were still pending/) do
       TimeControl.control do |_remote|
