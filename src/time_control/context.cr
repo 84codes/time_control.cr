@@ -1,6 +1,5 @@
 module TimeControl
-  # :nodoc:
-  class Context
+  private class Context
     private enum TimerKind
       Sleep
       SelectTimeout
