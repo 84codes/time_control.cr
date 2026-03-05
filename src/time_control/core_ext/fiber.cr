@@ -1,9 +1,9 @@
 class Fiber
   # :nodoc:
   def timeout(timeout : Time::Span, select_action : Channel::TimeoutAction) : Nil
-    if TimeControl.enabled?
+    if ctx = TimeControl.context
       @timeout_select_action = select_action
-      TimeControl.add_select_timeout(self, timeout)
+      ctx.add_select_timeout(self, timeout)
     else
       @timeout_select_action = select_action
       timeout_event.add(timeout)
@@ -12,10 +12,10 @@ class Fiber
 
   # :nodoc:
   def cancel_timeout : Nil
-    if TimeControl.enabled?
+    if ctx = TimeControl.context
       return unless @timeout_select_action
       @timeout_select_action = nil
-      TimeControl.cancel_select_timeout(self)
+      ctx.cancel_select_timeout(self)
     else
       return unless @timeout_select_action
       @timeout_select_action = nil
