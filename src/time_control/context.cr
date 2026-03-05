@@ -27,12 +27,12 @@ module TimeControl
       @advance_ch = Channel(Time::Span).new
       @done_ch = Channel(Nil).new
 
-      mono = Crystal::System::Time.real_monotonic
+      mono = Crystal::System::Time.monotonic
       @control_start_monotonic_ns = mono[0] * 1_000_000_000_i64 + mono[1]
       @virtual_now = Time::Instant.new(mono[0], mono[1])
       @control_start_instant = @virtual_now
 
-      utc = Crystal::System::Time.real_compute_utc_seconds_and_nanoseconds
+      utc = Crystal::System::Time.compute_utc_seconds_and_nanoseconds
       @control_start_utc_s = utc[0]
       @control_start_utc_ns = utc[1]
 
