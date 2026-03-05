@@ -82,6 +82,24 @@ describe TimeControl do
     end
   end
 
+  it "advance with no args advances to the next pending timer" do
+    TimeControl.control do |remote|
+      t0 = Time.instant
+      spawn { sleep 3.seconds }
+
+      remote.advance
+      (Time.instant - t0).should eq(3.seconds)
+    end
+  end
+
+  it "advance with no args raises when there are no pending timers" do
+    TimeControl.control do |remote|
+      expect_raises(Exception, "no pending timers") do
+        remote.advance
+      end
+    end
+  end
+
   it "wakes fibers in time order" do
     order = Channel(Int32).new(3)
     done = Channel(Nil).new

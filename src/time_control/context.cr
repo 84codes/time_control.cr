@@ -66,6 +66,10 @@ module TimeControl
       end
     end
 
+    def next_wake_at : Time::Instant?
+      @timers_mutex.synchronize { @timers.first?.try &.wake_at }
+    end
+
     def advance(duration : Time::Span) : Nil
       @advance_ch.send(duration)
       @done_ch.receive

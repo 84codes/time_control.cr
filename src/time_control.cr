@@ -54,6 +54,19 @@ module TimeControl
       Fiber.yield
       @ctx.advance(duration)
     end
+
+    # Advances virtual time to the next pending timer entry.
+    #
+    # Raises if there are no pending timers.
+    #
+    # ```
+    # remote.advance
+    # ```
+    def advance : Nil
+      Fiber.yield
+      wake_at = @ctx.next_wake_at || raise "no pending timers"
+      @ctx.advance(wake_at - @ctx.virtual_now)
+    end
   end
 
   @@context : Context? = nil
