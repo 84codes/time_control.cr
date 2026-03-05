@@ -28,7 +28,6 @@ module TimeControl
     # remote.advance(5.seconds)
     # ```
     def advance(duration : Time::Span) : Nil
-      raise "TimeControl is not enabled" unless TimeControl.context
       Fiber.yield
       @ctx.advance_ch.send(duration)
       @ctx.done_ch.receive
@@ -38,13 +37,18 @@ module TimeControl
   @@context : Context? = nil
 
   # :nodoc:
-  def self.context : Context?
-    @@context
+  def self.enabled? : Bool
+    !@@context.nil?
+  end
+
+  # :nodoc:
+  def self.context : Context
+    @@context || raise "TimeControl is not enabled"
   end
 
   # :nodoc:
   def self.virtual_now : Time::Instant
-    @@context.not_nil!.virtual_now
+    context.virtual_now
   end
 
   # Enables virtual time control for the duration of the block.

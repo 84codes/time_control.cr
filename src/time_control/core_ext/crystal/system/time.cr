@@ -14,21 +14,19 @@ module Crystal::System::Time
 
   # :nodoc:
   def self.monotonic : {Int64, Int32}
-    ctx = TimeControl.context
-    if ctx && !::Thread.current.same?(ctx.timer_loop_thread)
-      ctx.virtual_monotonic
-    else
-      previous_def
+    if TimeControl.enabled?
+      ctx = TimeControl.context
+      return ctx.virtual_monotonic unless ::Thread.current.same?(ctx.timer_loop_thread)
     end
+    previous_def
   end
 
   # :nodoc:
   def self.compute_utc_seconds_and_nanoseconds : {Int64, Int32}
-    ctx = TimeControl.context
-    if ctx && !::Thread.current.same?(ctx.timer_loop_thread)
-      ctx.virtual_utc
-    else
-      previous_def
+    if TimeControl.enabled?
+      ctx = TimeControl.context
+      return ctx.virtual_utc unless ::Thread.current.same?(ctx.timer_loop_thread)
     end
+    previous_def
   end
 end
