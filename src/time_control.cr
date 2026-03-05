@@ -94,6 +94,7 @@ module TimeControl
     @@timer_loop_fiber = nil
     @@timer_loop_thread = nil
     advance_ch.try &.close
+    done_ch.try &.receive?
     @@advance_channel = nil
     @@done_channel = nil
     @@timers_mutex.synchronize { @@timers.clear }
@@ -129,6 +130,23 @@ module TimeControl
       @@virtual_now = target
       done_ch.send(nil)
     end
+
+    loop do
+      entry = @@timers_mutex.synchronize { @@timers.shift? }
+      break unless entry
+
+      case entry.kind
+      in .sleep?
+        entry.fiber.enqueue
+      in .select_timeout?
+        if select_action = entry.fiber.timeout_select_action
+          entry.fiber.timeout_select_action = nil
+          entry.fiber.enqueue if select_action.time_expired?
+        end
+      end
+    end
+
+    done_ch.send(nil)
   end
 
   def self.advance(duration : Time::Span) : Nil
