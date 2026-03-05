@@ -2,6 +2,14 @@
 
 A Crystal shard (library) that hijacks Crystal's event loop to control time in specs. Requires Crystal >= 1.19.1 and the `-Dexecution_context` compile flag.
 
+## Code Style
+
+After editing any `.cr` file, format it with:
+
+```sh
+crystal tool format <file>
+```
+
 ## Build & Test Commands
 
 The `-Dexecution_context` flag is required for all compilation and testing.
