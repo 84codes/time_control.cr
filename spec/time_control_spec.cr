@@ -188,6 +188,26 @@ describe TimeControl do
     end
   end
 
+  describe "real time moves fast" do
+    it "a long sleep returns near-instantly in real time" do
+      t0 = Time.instant
+      TimeControl.control do |remote|
+        spawn { sleep 1.hour }
+        remote.advance(1.hour)
+      end
+      (Time.instant - t0).should be_close(Time::Span.zero, 1.second)
+    end
+
+    it "many long sleeps return near-instantly in real time" do
+      t0 = Time.instant
+      TimeControl.control do |remote|
+        10.times { spawn { sleep 1.hour } }
+        remote.advance(1.hour)
+      end
+      (Time.instant - t0).should be_close(Time::Span.zero, 1.second)
+    end
+  end
+
   it "does not advance virtual time for sleep(0)" do
     TimeControl.control do |_remote|
       t0 = TimeControl.virtual_now
