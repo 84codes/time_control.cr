@@ -11,6 +11,7 @@ module TimeControl
     property virtual_now : Time::Instant
     property timer_loop_fiber : Fiber?
     property timer_loop_thread : Thread?
+    getter leaked_timer_count : Int32 = 0
 
     @advance_ch : Channel(Time::Span)
     @done_ch : Channel(Nil)
@@ -102,6 +103,7 @@ module TimeControl
       loop do
         entry = @timers_mutex.synchronize { @timers.shift? }
         break unless entry
+        @leaked_timer_count += 1
         enqueue_entry(entry)
       end
     end

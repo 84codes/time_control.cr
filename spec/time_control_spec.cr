@@ -188,6 +188,15 @@ describe TimeControl do
     end
   end
 
+  it "raises if timers are still pending when the control block exits" do
+    expect_raises(Exception, /1 timer\(s\) were still pending/) do
+      TimeControl.control do |_remote|
+        spawn { sleep 1.second }
+        Fiber.yield
+      end
+    end
+  end
+
   describe "real time moves fast" do
     it "a long sleep returns near-instantly in real time" do
       t0 = Time.instant

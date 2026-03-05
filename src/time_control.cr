@@ -78,5 +78,8 @@ module TimeControl
     ctx.try &.stop
     isolated.try &.wait
     ctx.try &.clear_timers
+    if ctx && ctx.leaked_timer_count > 0
+      raise "TimeControl: #{ctx.leaked_timer_count} timer(s) were still pending when the control block exited"
+    end
   end
 end
