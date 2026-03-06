@@ -215,6 +215,99 @@ describe TimeControl do
     ex.count.should eq(1)
   end
 
+  describe "IO timeouts" do
+    it "fires read_timeout when virtual time advances past it" do
+      r, w = IO.pipe
+      result = Channel(Symbol).new
+
+      TimeControl.control do |controller|
+        spawn do
+          r.read_timeout = 2.seconds
+          begin
+            r.read(Bytes.new(1))
+            result.send(:read)
+          rescue IO::TimeoutError
+            result.send(:timed_out)
+          end
+        end
+
+        controller.advance(3.seconds)
+        result.receive.should eq(:timed_out)
+      end
+      w.close
+      r.close
+    end
+
+    it "does not fire read_timeout when data arrives before the deadline" do
+      r, w = IO.pipe
+      result = Channel(Symbol).new
+
+      TimeControl.control do |_controller|
+        spawn do
+          r.read_timeout = 5.seconds
+          buf = Bytes.new(1)
+          begin
+            r.read(buf)
+            result.send(:read)
+          rescue IO::TimeoutError
+            result.send(:timed_out)
+          end
+        end
+
+        w.write(Bytes[42])
+        result.receive.should eq(:read)
+        w.close
+        r.close
+      end
+    end
+
+    it "fires read_timeout at the correct virtual time" do
+      r, w = IO.pipe
+      result = Channel(Time::Span).new
+
+      TimeControl.control do |controller|
+        t0 = Time.instant
+        spawn do
+          r.read_timeout = 3.seconds
+          begin
+            r.read(Bytes.new(1))
+          rescue IO::TimeoutError
+            result.send(Time.instant - t0)
+          end
+        end
+
+        controller.advance(5.seconds)
+        elapsed = result.receive
+        elapsed.should be_close(3.seconds, 10.milliseconds)
+        w.close
+        r.close
+      end
+    end
+
+    it "advance with no args advances to the next IO timeout" do
+      r, w = IO.pipe
+      result = Channel(Symbol).new
+
+      TimeControl.control do |controller|
+        t0 = Time.instant
+        spawn do
+          r.read_timeout = 2.seconds
+          begin
+            r.read(Bytes.new(1))
+          rescue IO::TimeoutError
+            result.send(:timed_out)
+          end
+        end
+
+        controller.advance
+        (Time.instant - t0).should eq(2.seconds)
+        result.receive.should eq(:timed_out)
+        w.close
+        r.close
+      end
+    end
+  end
+
   describe "real time moves fast" do
     it "a long sleep returns near-instantly in real time" do
       t0 = Time.instant

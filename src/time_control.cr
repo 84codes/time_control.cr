@@ -8,6 +8,7 @@ require "./time_control/context"
 require "./time_control/controller"
 require "./time_control/core_ext/crystal/system/time"
 require "./time_control/core_ext/crystal/event_loop"
+require "./time_control/core_ext/crystal/event_loop/polling"
 require "./time_control/core_ext/fiber"
 
 module TimeControl
@@ -28,6 +29,10 @@ module TimeControl
   # Intercepts `sleep`, `select ... when timeout(...)`,
   # `Time.utc`, and `Time.instant` so that time stands still until
   # explicitly advanced via `Controller#advance`.
+  #
+  # IO operation timeouts (e.g. `read_timeout`, `write_timeout`) are also
+  # intercepted on builds that use the Polling event loop (kqueue on macOS/BSD,
+  # epoll on Linux). They are not intercepted on LibEvent or IOCP builds.
   #
   # ```
   # TimeControl.control do |remote|

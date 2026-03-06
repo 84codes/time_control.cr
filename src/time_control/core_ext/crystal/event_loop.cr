@@ -1,5 +1,3 @@
-# Patch every Crystal::EventLoop subclass that defines sleep so we intercept
-# it regardless of which event loop implementation is used in a given build.
 {% for subclass in Crystal::EventLoop.all_subclasses %}
   {% if subclass.methods.any? { |method| method.name == "sleep" } %}
     class {{ subclass.id }}
@@ -16,4 +14,5 @@
       end
     end
   {% end %}
+
 {% end %}

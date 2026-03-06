@@ -3,6 +3,7 @@ module TimeControl
     private enum TimerKind
       Sleep
       SelectTimeout
+      IoTimeoutWakeup
     end
 
     private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
@@ -13,6 +14,8 @@ module TimeControl
 
     @advance_ch : Channel(Time::Span)
     @done_ch : Channel(Nil)
+    @timer_inserted_ch : Channel(Nil)
+    @advance_target : Time::Instant?
 
     @control_start_instant : Time::Instant
     @control_start_monotonic_ns : Int64
@@ -24,6 +27,7 @@ module TimeControl
     def initialize
       @advance_ch = Channel(Time::Span).new
       @done_ch = Channel(Nil).new
+      @timer_inserted_ch = Channel(Nil).new(1)
 
       mono = Crystal::System::Time.monotonic
       @control_start_monotonic_ns = mono[0] * 1_000_000_000_i64 + mono[1]
@@ -49,15 +53,24 @@ module TimeControl
     end
 
     def add_sleep(fiber : Fiber, duration : Time::Span) : Nil
-      @timers_mutex.synchronize do
+      notify = @timers_mutex.synchronize do
         insert_timer(TimerEntry.new(fiber, @virtual_now + duration, TimerKind::Sleep))
       end
+      notify_run_loop if notify
     end
 
     def add_select_timeout(fiber : Fiber, duration : Time::Span) : Nil
-      @timers_mutex.synchronize do
+      notify = @timers_mutex.synchronize do
         insert_timer(TimerEntry.new(fiber, @virtual_now + duration, TimerKind::SelectTimeout))
       end
+      notify_run_loop if notify
+    end
+
+    def add_io_timeout(wake_at : Time::Instant) : Nil
+      notify = @timers_mutex.synchronize do
+        insert_timer(TimerEntry.new(Fiber.current, wake_at, TimerKind::IoTimeoutWakeup))
+      end
+      notify_run_loop if notify
     end
 
     def cancel_select_timeout(fiber : Fiber) : Nil
@@ -83,6 +96,7 @@ module TimeControl
     def run : Nil
       while duration = @advance_ch.receive?
         target = @virtual_now + duration
+        @timers_mutex.synchronize { @advance_target = target }
 
         loop do
           entry = @timers_mutex.synchronize do
@@ -90,13 +104,24 @@ module TimeControl
             (e && e.wake_at <= target) ? @timers.shift : nil
           end
 
-          break unless entry
-
-          @virtual_now = entry.wake_at
-          enqueue_entry(entry)
-          sleep 1.millisecond # allow the woken fiber to run and register any chained sleep before rechecking
+          if entry
+            @virtual_now = entry.wake_at
+            enqueue_entry(entry)
+            sleep 1.millisecond # allow the woken fiber to run and register any chained timer
+          else
+            # Block until a chained timer is inserted within target, or give up after 1ms.
+            # This closes the race where a fiber in another thread registers a timer just
+            # after the loop checked @timers but before it would break.
+            select
+            when @timer_inserted_ch.receive
+              # a new timer was inserted within target — re-check
+            when timeout(1.millisecond)
+              break
+            end
+          end
         end
 
+        @timers_mutex.synchronize { @advance_target = nil }
         @virtual_now = target
         @done_ch.send(nil)
       end
@@ -104,6 +129,7 @@ module TimeControl
       loop do
         entry = @timers_mutex.synchronize { @timers.shift? }
         break unless entry
+        next if entry.kind.io_timeout_wakeup? # not a stuck fiber; just an interrupt trigger for the event loop
         @leaked_timer_count += 1
         enqueue_entry(entry)
       end
@@ -117,6 +143,13 @@ module TimeControl
       (@virtual_now - @control_start_instant).total_nanoseconds.to_i64
     end
 
+    private def notify_run_loop : Nil
+      select
+      when @timer_inserted_ch.send(nil)
+      else
+      end
+    end
+
     private def enqueue_entry(entry : TimerEntry) : Nil
       case entry.kind
       in .sleep?
@@ -126,12 +159,18 @@ module TimeControl
           entry.fiber.timeout_select_action = nil
           entry.fiber.enqueue if select_action.time_expired?
         end
+      in .io_timeout_wakeup?
+        entry.fiber.execution_context.event_loop.interrupt
       end
     end
 
-    private def insert_timer(entry : TimerEntry) : Nil
+    # Inserts the entry into the sorted @timers array and returns true if the
+    # run loop should be notified (i.e. an advance is active and this timer
+    # falls within its target window).
+    private def insert_timer(entry : TimerEntry) : Bool
       idx = @timers.bsearch_index { |e| e.wake_at > entry.wake_at } || @timers.size
       @timers.insert(idx, entry)
+      !!(t = @advance_target) && entry.wake_at <= t
     end
   end
 end
