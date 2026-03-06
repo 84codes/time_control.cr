@@ -1,5 +1,6 @@
 module TimeControl
   private class Context
+    UNIX_TO_CRYSTAL_EPOCH = 62135596800_i64
     private enum TimerKind
       Sleep
       SelectTimeout
@@ -24,7 +25,7 @@ module TimeControl
     @timers : Array(TimerEntry)
     @timers_mutex : Mutex
 
-    def initialize
+    def initialize(start_time : Time? = nil)
       @advance_ch = Channel(Time::Span).new
       @done_ch = Channel(Nil).new
       @timer_inserted_ch = Channel(Nil).new(1)
@@ -34,9 +35,14 @@ module TimeControl
       @virtual_now = Time::Instant.new(mono[0], mono[1])
       @control_start_instant = @virtual_now
 
-      utc = Crystal::System::Time.compute_utc_seconds_and_nanoseconds
-      @control_start_utc_s = utc[0]
-      @control_start_utc_ns = utc[1]
+      if st = start_time
+        @control_start_utc_s = st.to_unix + UNIX_TO_CRYSTAL_EPOCH
+        @control_start_utc_ns = st.nanosecond.to_i32
+      else
+        utc = Crystal::System::Time.compute_utc_seconds_and_nanoseconds
+        @control_start_utc_s = utc[0]
+        @control_start_utc_ns = utc[1]
+      end
 
       @timers = [] of TimerEntry
       @timers_mutex = Mutex.new

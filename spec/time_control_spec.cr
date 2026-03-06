@@ -447,4 +447,67 @@ describe TimeControl do
       end
     end
   end
+
+  describe "start_time" do
+    it "accepts a Time object and sets initial Time.utc" do
+      start = Time.utc(2030, 6, 15, 12, 0, 0)
+      TimeControl.control(start) do |_controller|
+        Time.utc.should eq(start)
+      end
+    end
+
+    it "accepts an ISO 8601 datetime string with Z suffix" do
+      TimeControl.control("2030-06-15T12:00:00Z") do |_controller|
+        Time.utc.should eq(Time.utc(2030, 6, 15, 12, 0, 0))
+      end
+    end
+
+    it "accepts a datetime string without timezone (assumed UTC)" do
+      TimeControl.control("2030-06-15T12:00:00") do |_controller|
+        Time.utc.should eq(Time.utc(2030, 6, 15, 12, 0, 0))
+      end
+    end
+
+    it "accepts a date-only string (midnight UTC)" do
+      TimeControl.control("2030-06-15") do |_controller|
+        Time.utc.should eq(Time.utc(2030, 6, 15, 0, 0, 0))
+      end
+    end
+
+    it "accepts a time-only string with today's real date" do
+      today = Time.utc
+      TimeControl.control("09:30:00") do |_controller|
+        t = Time.utc
+        t.year.should eq(today.year)
+        t.month.should eq(today.month)
+        t.day.should eq(today.day)
+        t.hour.should eq(9)
+        t.minute.should eq(30)
+        t.second.should eq(0)
+      end
+    end
+
+    it "accepts a time-only string without seconds" do
+      TimeControl.control("09:30") do |_controller|
+        t = Time.utc
+        t.hour.should eq(9)
+        t.minute.should eq(30)
+        t.second.should eq(0)
+      end
+    end
+
+    it "advances Time.utc correctly from a custom start time" do
+      start = Time.utc(2030, 1, 1, 0, 0, 0)
+      TimeControl.control(start) do |controller|
+        controller.advance(1.hour)
+        Time.utc.should eq(Time.utc(2030, 1, 1, 1, 0, 0))
+      end
+    end
+
+    it "raises ArgumentError for an unparseable string" do
+      expect_raises(ArgumentError) do
+        TimeControl.control("not a time") { }
+      end
+    end
+  end
 end

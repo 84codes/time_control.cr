@@ -98,6 +98,32 @@ it "stamps events with virtual time" do
 end
 ```
 
+### Setting the starting time
+
+By default, virtual UTC starts at the real wall-clock time when `control` is
+entered. Pass a `Time` or a string to start at a specific point instead:
+
+```crystal
+# Time object
+TimeControl.control(Time.utc(2030, 1, 1, 9, 0, 0)) do |controller|
+  Time.utc # => 2030-01-01 09:00:00 UTC
+end
+
+# ISO 8601 datetime (timezone optional, defaults to UTC)
+TimeControl.control("2030-01-01T09:00:00Z") do |controller| ...
+TimeControl.control("2030-01-01T09:00:00") do |controller| ...
+
+# Date only — midnight UTC
+TimeControl.control("2030-01-01") do |controller| ...
+
+# Time only — today's real date, given time, UTC
+TimeControl.control("09:00:00") do |controller| ...
+TimeControl.control("09:00") do |controller| ...
+```
+
+Only `Time.utc` is affected by the starting time. `Time::Instant` (monotonic)
+has no calendar origin and always starts from "now", advancing relatively.
+
 ### Advancing to the next timer
 
 `controller.advance` (no argument) advances exactly to the next pending timer.

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(crystal env CRYSTAL_PATH 2>/dev/null && which crystal)",
+      "Bash(grep -n \"def self.instant\\\\|def instant\" /opt/homebrew/Cellar/crystal/1.19.1/share/crystal/src/crystal/system/time.cr 2>/dev/null || grep -rn \"def.*instant\" /opt/homebrew/Cellar/crystal/1.19.1/share/crystal/src/crystal/system/ 2>/dev/null | head -20)",
+      "Bash(crystal spec 2>&1)",
+      "Bash(crystal spec -Dexecution_context 2>&1)",
+      "Bash(git add .editorconfig .gitignore LICENSE README.md shard.yml spec/ src/ CLAUDE.md)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nImplement TimeControl spec helper for virtual time control\n\nIntercepts Crystal's event loop at the `Crystal::EventLoop::Polling#sleep`\nlevel and patches `Fiber#timeout`/`cancel_timeout` to redirect sleeping\nfibers into a virtual timer queue instead of the real event loop.\n\nA dedicated `Fiber::ExecutionContext::Isolated` thread runs the timer loop,\nprocessing advance commands and waking sleeping fibers in virtual-time order\nby calling `fiber.enqueue` back into their original execution context. Timers\nare processed one at a time with a 1ms settle wait between each to allow\nchained and nested sleeps to register before the next timer fires.\n\nAPI: `TimeControl.control { |remote| remote.advance\\(1.second\\) }`\n\nRequires `-Dexecution_context` compile flag.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(ameba 2>&1)",
+      "Bash(crystal env:*)",
+      "Bash(crystal tool:*)",
+      "Bash(crystal:*)",
+      "Bash(git:*)"
+    ]
+  }
+}

@@ -34,14 +34,61 @@ module TimeControl
   # intercepted on builds that use the Polling event loop (kqueue on macOS/BSD,
   # epoll on Linux). They are not intercepted on LibEvent or IOCP builds.
   #
+  # An optional *start_time* sets the initial value of `Time.utc` inside the
+  # block. Without it, virtual UTC starts at the real wall-clock time.
+  #
   # ```
-  # TimeControl.control do |remote|
+  # TimeControl.control do |controller|
   #   spawn { sleep 5.minutes; puts "done" }
-  #   remote.advance(5.minutes)
+  #   controller.advance(5.minutes)
+  # end
+  #
+  # TimeControl.control(Time.utc(2030, 1, 1)) do |controller|
+  #   Time.utc.year # => 2030
+  # end
+  #
+  # TimeControl.control("2030-01-01T09:00:00Z") do |controller|
+  #   Time.utc.hour # => 9
   # end
   # ```
   def self.control(& : Controller ->) : Nil
-    ctx = Context.new
+    control(Context.new) { |controller| yield controller }
+  end
+
+  def self.control(start_time : Time, & : Controller ->) : Nil
+    control(Context.new(start_time)) { |controller| yield controller }
+  end
+
+  def self.control(start_time : String, & : Controller ->) : Nil
+    control(parse_start_time(start_time)) { |controller| yield controller }
+  end
+
+  private def self.parse_start_time(str : String) : Time
+    begin
+      return Time::Format::ISO_8601_DATE_TIME.parse(str)
+    rescue Time::Format::Error
+    end
+
+    {"%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"}.each do |fmt|
+      begin
+        return Time.parse_utc(str, fmt)
+      rescue Time::Format::Error
+      end
+    end
+
+    today = Time.utc
+    {"%H:%M:%S", "%H:%M"}.each do |fmt|
+      begin
+        t = Time.parse_utc(str, fmt)
+        return Time.utc(today.year, today.month, today.day, t.hour, t.minute, t.second)
+      rescue Time::Format::Error
+      end
+    end
+
+    raise ArgumentError.new("Cannot parse #{str.inspect} as a date, time, or datetime")
+  end
+
+  private def self.control(ctx : Context, & : Controller ->) : Nil
     @@context = ctx
 
     isolated = Fiber::ExecutionContext::Isolated.new("time-control") do
