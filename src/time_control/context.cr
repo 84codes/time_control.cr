@@ -1,5 +1,8 @@
 module TimeControl
   private class Context
+    # Seconds between Crystal's epoch (0001-01-01 UTC) and the Unix epoch (1970-01-01 UTC).
+    # `compute_utc_seconds_and_nanoseconds` returns Crystal-epoch seconds, while
+    # `Time#to_unix` returns Unix-epoch seconds, so this offset bridges the two.
     UNIX_TO_CRYSTAL_EPOCH = 62135596800_i64
     private enum TimerKind
       Sleep
@@ -166,6 +169,10 @@ module TimeControl
           entry.fiber.enqueue if select_action.time_expired?
         end
       in .io_timeout_wakeup?
+        # Wake the blocking kqueue/epoll wait in the fiber's event loop. This
+        # causes it to call process_timers, which checks deadlines against the
+        # virtual clock (already advanced) and fires IO::TimeoutError on the
+        # waiting fiber.
         entry.fiber.execution_context.event_loop.interrupt
       end
     end
@@ -176,6 +183,9 @@ module TimeControl
     private def insert_timer(entry : TimerEntry) : Bool
       idx = @timers.bsearch_index { |e| e.wake_at > entry.wake_at } || @timers.size
       @timers.insert(idx, entry)
+      # Return true if the run loop should be notified: an advance is in
+      # progress and this timer falls within its target window, meaning the
+      # loop may be blocking on @timer_inserted_ch waiting for exactly this.
       !!(t = @advance_target) && entry.wake_at <= t
     end
   end
