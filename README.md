@@ -1,9 +1,10 @@
 # TimeControl
 
 A Crystal shard for controlling time in specs. Intercepts `sleep`,
-`select ... when timeout(...)`, `Time.utc`, and `Time.instant` so that
-time stands still until explicitly advanced — making specs that involve
-timeouts and scheduled work run instantly without real waiting.
+`select ... when timeout(...)`, IO operation timeouts (`read_timeout`,
+`write_timeout`), `Time.utc`, and `Time.instant` so that time stands still
+until explicitly advanced — making specs that involve timeouts and scheduled
+work run instantly without real waiting.
 
 Requires Crystal >= 1.19.1 and the `-Dexecution_context` compile flag.
 
@@ -120,6 +121,34 @@ it "retries after the backoff period" do
 end
 ```
 
+### Controlling IO timeouts
+
+IO operation timeouts (`read_timeout`, `write_timeout`) are intercepted on
+builds that use the Polling event loop (kqueue on macOS/BSD, epoll on Linux).
+They are not intercepted on LibEvent or IOCP builds.
+
+```crystal
+it "times out a read after the deadline" do
+  r, w = IO.pipe
+
+  TimeControl.control do |controller|
+    spawn do
+      r.read_timeout = 2.seconds
+      begin
+        r.read(Bytes.new(1))
+      rescue IO::TimeoutError
+        # timed out at virtual 2s
+      end
+    end
+
+    controller.advance(2.seconds)
+  end
+
+  r.close
+  w.close
+end
+```
+
 ### Pending timers
 
 If the `control` block exits while virtual timers are still pending (i.e.
@@ -145,11 +174,24 @@ Patching them registers (or removes) a virtual select-timeout entry instead
 of arming the real event loop timer, so timeout branches fire at the right
 virtual instant.
 
+**`Crystal::EventLoop::Polling#add_timer` — IO timeouts**
+When a fiber registers an IO operation with a timeout (e.g. `read_timeout`),
+the Polling event loop calls `add_timer` to schedule the deadline. Patching
+this method intercepts IO read/write timer events and registers a corresponding
+virtual timer. When that virtual timer fires during `advance`, the fiber's
+event loop is interrupted via `EventLoop#interrupt`, causing it to call
+`process_timers` and discover the deadline has passed — firing
+`IO::TimeoutError` at the correct virtual time. This patch is guarded by a
+compile-time macro check and only applies when `Crystal::EventLoop::Polling`
+exists (i.e. kqueue/epoll builds). LibEvent and IOCP builds are unaffected.
+
 **`Crystal::System::Time.clock_gettime`**
 All monotonic time reads — including `Time::Instant.now` and the durations
 used internally by the scheduler — go through this private method. Returning
 a virtual `Timespec` here makes `Time.instant` and `sleep` duration tracking
-reflect virtual time rather than wall-clock time.
+reflect virtual time rather than wall-clock time. It also means IO timeout
+deadlines computed by the Polling event loop are already in virtual time
+coordinates, which is what makes the `add_timer` interception work correctly.
 
 **`Crystal::System::Time.compute_utc_seconds_and_nanoseconds`**
 Patching this makes `Time.utc` return the virtual UTC time derived from the
