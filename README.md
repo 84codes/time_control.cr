@@ -149,6 +149,33 @@ it "times out a read after the deadline" do
 end
 ```
 
+If you want an IO operation to complete before advancing (preventing the
+timeout from firing), add a synchronization mechanism — such as a channel —
+to wait until the fiber has finished its read or write before calling
+`controller.advance`:
+
+```crystal
+it "data arrives before the deadline, no timeout" do
+  r, w = IO.pipe
+  ready = Channel(Nil).new
+
+  TimeControl.control do |controller|
+    spawn do
+      r.read_timeout = 5.seconds
+      ready.send(nil)  # signal that the read is about to start
+      r.read(Bytes.new(1))
+    end
+
+    ready.receive        # wait until the fiber is blocked on read
+    w.write(Bytes[42])   # deliver data — no timeout fires
+    controller.advance(5.seconds)
+  end
+
+  r.close
+  w.close
+end
+```
+
 ### Pending timers
 
 If the `control` block exits while virtual timers are still pending (i.e.
