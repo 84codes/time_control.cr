@@ -101,8 +101,6 @@ module TimeControl
     @@context = nil
     ctx.try &.stop
     isolated.try &.wait
-    if ctx && ctx.leaked_timer_count > 0
-      raise PendingTimersError.new(ctx.leaked_timer_count)
-    end
+    ctx.try &.reschedule_pending_timers
   end
 end

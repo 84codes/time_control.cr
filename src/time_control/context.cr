@@ -12,9 +12,14 @@ module TimeControl
 
     private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
 
+    # A timer that was still pending when control stopped, paired with the
+    # virtual time remaining until it would have fired. Used to re-attach the
+    # parked fiber to the real event loop with that remaining duration.
+    private record PendingTimer, fiber : Fiber, time_left : Time::Span, kind : TimerKind
+
     getter virtual_now : Time::Instant
     property timer_loop_thread : Thread?
-    getter leaked_timer_count : Int32 = 0
+    getter pending_timers = [] of PendingTimer
 
     @advance_ch : Channel(Time::Span)
     @done_ch : Channel(Nil)
@@ -139,8 +144,27 @@ module TimeControl
         entry = @timers_mutex.synchronize { @timers.shift? }
         break unless entry
         next if entry.kind.io_timeout_wakeup? # not a stuck fiber; just an interrupt trigger for the event loop
-        @leaked_timer_count += 1
-        enqueue_entry(entry)
+        @pending_timers << PendingTimer.new(entry.fiber, entry.wake_at - @virtual_now, entry.kind)
+      end
+    end
+
+    # Re-attaches any timers that were still pending when control stopped to the
+    # real event loop, each with the virtual time that remained until it would
+    # have fired. Must be called after control has stopped (i.e. while time is no
+    # longer being intercepted) so that `sleep` uses the real event loop.
+    def reschedule_pending_timers : Nil
+      @pending_timers.each do |pending|
+        fiber = pending.fiber
+        kind = pending.kind
+        time_left = pending.time_left
+        spawn do
+          sleep time_left if time_left > Time::Span.zero
+          case kind
+          in .sleep?          then fiber.enqueue
+          in .select_timeout? then fire_select_timeout(fiber)
+          in .io_timeout_wakeup? # never collected into @pending_timers
+          end
+        end
       end
     end
 
@@ -164,16 +188,20 @@ module TimeControl
       in .sleep?
         entry.fiber.enqueue
       in .select_timeout?
-        if select_action = entry.fiber.timeout_select_action
-          entry.fiber.timeout_select_action = nil
-          entry.fiber.enqueue if select_action.time_expired?
-        end
+        fire_select_timeout(entry.fiber)
       in .io_timeout_wakeup?
         # Wake the blocking kqueue/epoll wait in the fiber's event loop. This
         # causes it to call process_timers, which checks deadlines against the
         # virtual clock (already advanced) and fires IO::TimeoutError on the
         # waiting fiber.
         entry.fiber.execution_context.event_loop.interrupt
+      end
+    end
+
+    private def fire_select_timeout(fiber : Fiber) : Nil
+      if select_action = fiber.timeout_select_action
+        fiber.timeout_select_action = nil
+        fiber.enqueue if select_action.time_expired?
       end
     end
 

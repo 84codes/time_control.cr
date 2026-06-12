@@ -205,14 +205,41 @@ describe TimeControl do
     end
   end
 
-  it "raises if timers are still pending when the control block exits" do
-    ex = expect_raises(TimeControl::PendingTimersError, /1 timer\(s\) were still pending/) do
-      TimeControl.control do |_controller|
-        spawn { sleep 1.second }
-        Fiber.yield
-      end
+  it "re-attaches a pending sleep to the real event loop when the control block exits" do
+    woke = Channel(Nil).new
+
+    TimeControl.control do |_controller|
+      spawn { sleep 10.milliseconds; woke.send(nil) }
+      Fiber.yield
     end
-    ex.count.should eq(1)
+
+    select
+    when woke.receive
+    when timeout(2.seconds)
+      fail "pending sleep was not re-attached to the real event loop"
+    end
+  end
+
+  it "re-attaches a pending select timeout to the real event loop when the control block exits" do
+    fired = Channel(Symbol).new
+
+    TimeControl.control do |_controller|
+      spawn do
+        select
+        when fired.receive
+        when timeout(10.milliseconds)
+          fired.send(:timed_out)
+        end
+      end
+      Fiber.yield
+    end
+
+    select
+    when result = fired.receive
+      result.should eq(:timed_out)
+    when timeout(2.seconds)
+      fail "pending select timeout was not re-attached to the real event loop"
+    end
   end
 
   describe "IO timeouts" do

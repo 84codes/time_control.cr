@@ -205,8 +205,11 @@ end
 ### Pending timers
 
 If the `control` block exits while virtual timers are still pending (i.e.
-fibers are sleeping beyond the last `advance`), a `TimeControl::PendingTimersError`
-is raised. This catches specs that forget to advance past all scheduled work.
+fibers are sleeping or waiting on a `select` timeout beyond the last `advance`),
+each pending timer is re-attached to the real event loop with the virtual time
+that remained until it would have fired (`wake_at - virtual_now`). The parked
+fibers then wake up later in real time rather than being abandoned. `control`
+returns immediately and does not wait for them.
 
 ## How it works
 

@@ -31,13 +31,13 @@ When enabled:
 - `Crystal::System::Time.clock_gettime` is monkey-patched to return virtual monotonic time; `Crystal::System::Time.compute_utc_seconds_and_nanoseconds` is patched to return virtual UTC time.
 - A `Fiber::ExecutionContext::Isolated` runs a dedicated timer thread. When `advance(N)` is called, the timer thread processes all virtual timers with `wake_at <= virtual_now + N` in order, enqueuing sleeping fibers back into their original execution contexts.
 - After each batch of woken fibers, the timer thread waits 1ms (real sleep — the timer loop thread is tracked on `Context` and excluded from interception via `TimeControl.when_controlling`) to allow chained sleeps to register before rechecking.
-- If the control block exits with timers still pending, `PendingTimersError` is raised.
+- If the control block exits with timers still pending, each is re-attached to the real event loop with the virtual time that remained until it would have fired (`wake_at - virtual_now`), so the parked fibers wake up later in real time. `control` returns immediately.
 
 ## Public API
 
 - `TimeControl.control` — the main entry point
 - `Controller#advance(duration)` — advances virtual time by a fixed amount
 - `Controller#advance` — advances virtual time to the next pending timer
-- `TimeControl::Error`, `TimeControl::PendingTimersError` — error classes
+- `TimeControl::Error` — base error class
 
 Everything else is marked `# :nodoc:` or `private`. Do not add doc comments to internal methods, patch methods, or instance variables.
