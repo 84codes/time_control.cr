@@ -10,12 +10,15 @@ module TimeControl
       IoTimeoutWakeup
     end
 
-    private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind
+    # *on_wake*, when set, fully owns waking the fiber (used by adopted timers
+    # whose fiber is suspended in the real event loop's `sleep` and must have
+    # its stack-allocated event marked timed out before being enqueued).
+    private record TimerEntry, fiber : Fiber, wake_at : Time::Instant, kind : TimerKind, on_wake : Proc(Nil)? = nil
 
     # A timer that was still pending when control stopped, paired with the
     # virtual time remaining until it would have fired. Used to re-attach the
     # parked fiber to the real event loop with that remaining duration.
-    private record PendingTimer, fiber : Fiber, time_left : Time::Span, kind : TimerKind
+    private record PendingTimer, fiber : Fiber, time_left : Time::Span, kind : TimerKind, on_wake : Proc(Nil)? = nil
 
     getter virtual_now : Time::Instant
     property timer_loop_thread : Thread?
@@ -87,6 +90,30 @@ module TimeControl
       notify_run_loop if notify
     end
 
+    # Adopts a fiber that was already sleeping on the real event loop when
+    # control started. *wake_at* is the event's real monotonic deadline, which
+    # equals the virtual deadline because both clocks share their origin at
+    # control start. *on_wake* marks the real (stack-allocated) sleep event
+    # timed out before enqueuing the fiber.
+    def adopt_sleep(fiber : Fiber, wake_at : Time::Instant, on_wake : Proc(Nil)) : Nil
+      notify = @timers_mutex.synchronize do
+        at = wake_at < @virtual_now ? @virtual_now : wake_at
+        insert_timer(TimerEntry.new(fiber, at, TimerKind::Sleep, on_wake))
+      end
+      notify_run_loop if notify
+    end
+
+    # Adopts a fiber that was already waiting on a `select` timeout on the real
+    # event loop when control started. Reuses the native select-timeout wake and
+    # cancel paths.
+    def adopt_select_timeout(fiber : Fiber, wake_at : Time::Instant) : Nil
+      notify = @timers_mutex.synchronize do
+        at = wake_at < @virtual_now ? @virtual_now : wake_at
+        insert_timer(TimerEntry.new(fiber, at, TimerKind::SelectTimeout))
+      end
+      notify_run_loop if notify
+    end
+
     def cancel_select_timeout(fiber : Fiber) : Nil
       @timers_mutex.synchronize do
         @timers.reject! { |e| e.fiber.same?(fiber) && e.kind.select_timeout? }
@@ -144,7 +171,7 @@ module TimeControl
         entry = @timers_mutex.synchronize { @timers.shift? }
         break unless entry
         next if entry.kind.io_timeout_wakeup? # not a stuck fiber; just an interrupt trigger for the event loop
-        @pending_timers << PendingTimer.new(entry.fiber, entry.wake_at - @virtual_now, entry.kind)
+        @pending_timers << PendingTimer.new(entry.fiber, entry.wake_at - @virtual_now, entry.kind, entry.on_wake)
       end
     end
 
@@ -157,12 +184,17 @@ module TimeControl
         fiber = pending.fiber
         kind = pending.kind
         time_left = pending.time_left
+        on_wake = pending.on_wake
         spawn do
           sleep time_left if time_left > Time::Span.zero
-          case kind
-          in .sleep?          then fiber.enqueue
-          in .select_timeout? then fire_select_timeout(fiber)
-          in .io_timeout_wakeup? # never collected into @pending_timers
+          if on_wake
+            on_wake.call
+          else
+            case kind
+            in .sleep?          then fiber.enqueue
+            in .select_timeout? then fire_select_timeout(fiber)
+            in .io_timeout_wakeup? # never collected into @pending_timers
+            end
           end
         end
       end
@@ -184,6 +216,11 @@ module TimeControl
     end
 
     private def enqueue_entry(entry : TimerEntry) : Nil
+      if on_wake = entry.on_wake
+        on_wake.call
+        return
+      end
+
       case entry.kind
       in .sleep?
         entry.fiber.enqueue

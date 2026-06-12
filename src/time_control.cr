@@ -8,6 +8,7 @@ require "./time_control/context"
 require "./time_control/controller"
 require "./time_control/core_ext/crystal/system/time"
 require "./time_control/core_ext/crystal/event_loop"
+require "./time_control/core_ext/crystal/event_loop/timers"
 require "./time_control/core_ext/crystal/event_loop/polling"
 require "./time_control/core_ext/fiber"
 
@@ -90,6 +91,10 @@ module TimeControl
 
   private def self.control(ctx : Context, & : Controller ->) : Nil
     @@context = ctx
+
+    {% if Crystal::EventLoop.all_subclasses.any? { |subclass| subclass.name == "Crystal::EventLoop::Polling" } %}
+      adopt_pending_timers(ctx)
+    {% end %}
 
     isolated = Fiber::ExecutionContext::Isolated.new("time-control") do
       ctx.timer_loop_thread = Thread.current

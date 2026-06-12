@@ -31,6 +31,7 @@ When enabled:
 - `Crystal::System::Time.clock_gettime` is monkey-patched to return virtual monotonic time; `Crystal::System::Time.compute_utc_seconds_and_nanoseconds` is patched to return virtual UTC time.
 - A `Fiber::ExecutionContext::Isolated` runs a dedicated timer thread. When `advance(N)` is called, the timer thread processes all virtual timers with `wake_at <= virtual_now + N` in order, enqueuing sleeping fibers back into their original execution contexts.
 - After each batch of woken fibers, the timer thread waits 1ms (real sleep — the timer loop thread is tracked on `Context` and excluded from interception via `TimeControl.when_controlling`) to allow chained sleeps to register before rechecking.
+- At control start, fibers already sleeping or waiting on a select timeout on the real event loop are adopted into virtual time: every execution context's event loop is scanned (`Fiber::ExecutionContext.each`) and its sleep/select-timeout events are removed from the real `Crystal::EventLoop::Polling` timer heap and re-registered on the virtual clock. Polling builds only; IO-operation timeouts are left in place.
 - If the control block exits with timers still pending, each is re-attached to the real event loop with the virtual time that remained until it would have fired (`wake_at - virtual_now`), so the parked fibers wake up later in real time. `control` returns immediately.
 
 ## Public API

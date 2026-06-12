@@ -242,6 +242,64 @@ describe TimeControl do
     end
   end
 
+  describe "adopting pre-existing real-loop timers" do
+    it "adopts a fiber already sleeping on the real event loop" do
+      ready = Channel(Nil).new
+      woke = Channel(Time::Instant).new
+
+      spawn do
+        ready.send(nil)
+        sleep 10.seconds
+        woke.send(Time.instant)
+      end
+
+      ready.receive
+      sleep 5.milliseconds # let the fiber register its real sleep timer and park
+
+      TimeControl.control do |controller|
+        t0 = Time.instant
+        controller.advance(10.seconds)
+        select
+        when woke_at = woke.receive
+          # The fiber had already been asleep for a few real ms before control
+          # started, so slightly under 10s of virtual time remains.
+          (woke_at - t0).should be_close(10.seconds, 1.second)
+        when timeout(2.seconds)
+          fail "adopted sleep did not wake when virtual time advanced"
+        end
+      end
+    end
+
+    it "adopts a fiber already waiting on a select timeout on the real event loop" do
+      ready = Channel(Nil).new
+      result = Channel(Symbol).new
+      trigger = Channel(Nil).new
+
+      spawn do
+        ready.send(nil)
+        select
+        when trigger.receive
+          result.send(:received)
+        when timeout(10.seconds)
+          result.send(:timed_out)
+        end
+      end
+
+      ready.receive
+      sleep 5.milliseconds # let the fiber register its real select timeout and park
+
+      TimeControl.control do |controller|
+        controller.advance(10.seconds)
+        select
+        when r = result.receive
+          r.should eq(:timed_out)
+        when timeout(2.seconds)
+          fail "adopted select timeout did not fire when virtual time advanced"
+        end
+      end
+    end
+  end
+
   describe "IO timeouts" do
     it "fires read_timeout when virtual time advances past it" do
       r, w = IO.pipe
