@@ -14,7 +14,7 @@ module TimeControl
 
     getter virtual_now : Time::Instant
     property timer_loop_thread : Thread?
-    getter leaked_timer_count : Int32 = 0
+    getter leaked_timer_names = [] of String
 
     @advance_ch : Channel(Time::Span)
     @done_ch : Channel(Nil)
@@ -28,7 +28,7 @@ module TimeControl
     @timers : Array(TimerEntry)
     @timers_mutex : Mutex
 
-    def initialize(start_time : Time? = nil)
+    def initialize(start_time : Time? = nil, @only : Regex? = nil)
       @advance_ch = Channel(Time::Span).new
       @done_ch = Channel(Nil).new
       @timer_inserted_ch = Channel(Nil).new(1)
@@ -59,6 +59,17 @@ module TimeControl
     def virtual_utc : {Int64, Int32}
       total_ns = @control_start_utc_ns.to_i64 + elapsed_ns
       {@control_start_utc_s + total_ns // 1_000_000_000_i64, (total_ns % 1_000_000_000_i64).to_i32}
+    end
+
+    # Whether timers for *fiber* should be virtualized. True for every fiber
+    # unless an `only` filter is set, in which case only fibers whose name
+    # matches the filter are controlled — the rest keep real timers.
+    def controls?(fiber : Fiber) : Bool
+      only = @only
+      return true unless only
+      name = fiber.name
+      return false unless name
+      name.matches?(only)
     end
 
     def add_sleep(fiber : Fiber, duration : Time::Span) : Nil
@@ -139,7 +150,7 @@ module TimeControl
         entry = @timers_mutex.synchronize { @timers.shift? }
         break unless entry
         next if entry.kind.io_timeout_wakeup? # not a stuck fiber; just an interrupt trigger for the event loop
-        @leaked_timer_count += 1
+        @leaked_timer_names << (entry.fiber.name || "unnamed fiber")
         enqueue_entry(entry)
       end
     end

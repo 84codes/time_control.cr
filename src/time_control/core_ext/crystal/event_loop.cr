@@ -5,9 +5,11 @@
       def sleep(duration : ::Time::Span) : Nil
         if duration.total_nanoseconds > 0
           TimeControl.when_controlling do |ctx|
-            ctx.add_sleep(Fiber.current, duration)
-            Fiber.suspend
-            return
+            if ctx.controls?(Fiber.current)
+              ctx.add_sleep(Fiber.current, duration)
+              Fiber.suspend
+              return
+            end
           end
         end
         previous_def

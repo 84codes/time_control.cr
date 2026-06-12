@@ -37,6 +37,15 @@ module TimeControl
   # An optional *start_time* sets the initial value of `Time.utc` inside the
   # block. Without it, virtual UTC starts at the real wall-clock time.
   #
+  # An optional *only* filter restricts which fibers get virtual timers: only
+  # fibers whose name matches the regex are controlled; sleeps and timeouts
+  # of all other fibers stay on the real event loop. Use this when the
+  # process runs background fibers (housekeeping loops, tickers) that should
+  # keep running normally — without a filter their re-armed timers freeze and
+  # leak, raising `PendingTimersError` at block exit. Note that real timers
+  # are still measured against the virtual clock while it is controlled, so
+  # an unfiltered fiber's timer can fire late by up to the advanced amount.
+  #
   # ```
   # TimeControl.control do |controller|
   #   spawn { sleep 5.minutes; puts "done" }
@@ -50,17 +59,22 @@ module TimeControl
   # TimeControl.control("2030-01-01T09:00:00Z") do |controller|
   #   Time.utc.hour # => 9
   # end
+  #
+  # TimeControl.control(only: /^worker/) do |controller|
+  #   spawn(name: "worker 1") { sleep 5.minutes; puts "done" }
+  #   controller.advance(5.minutes)
+  # end
   # ```
-  def self.control(& : Controller ->) : Nil
-    control(Context.new) { |controller| yield controller }
+  def self.control(only : Regex? = nil, & : Controller ->) : Nil
+    control(Context.new(only: only)) { |controller| yield controller }
   end
 
-  def self.control(start_time : Time, & : Controller ->) : Nil
-    control(Context.new(start_time)) { |controller| yield controller }
+  def self.control(start_time : Time, only : Regex? = nil, & : Controller ->) : Nil
+    control(Context.new(start_time, only: only)) { |controller| yield controller }
   end
 
-  def self.control(start_time : String, & : Controller ->) : Nil
-    control(parse_start_time(start_time)) { |controller| yield controller }
+  def self.control(start_time : String, only : Regex? = nil, & : Controller ->) : Nil
+    control(parse_start_time(start_time), only: only) { |controller| yield controller }
   end
 
   private def self.parse_start_time(str : String) : Time
@@ -101,8 +115,8 @@ module TimeControl
     @@context = nil
     ctx.try &.stop
     isolated.try &.wait
-    if ctx && ctx.leaked_timer_count > 0
-      raise PendingTimersError.new(ctx.leaked_timer_count)
+    if ctx && !ctx.leaked_timer_names.empty?
+      raise PendingTimersError.new(ctx.leaked_timer_names)
     end
   end
 end

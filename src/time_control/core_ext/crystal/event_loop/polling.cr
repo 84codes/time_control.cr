@@ -5,7 +5,7 @@
       if wake_at = event.value.wake_at?
         if event.value.type.io_read? || event.value.type.io_write?
           TimeControl.when_controlling do |ctx|
-            ctx.add_io_timeout(wake_at)
+            ctx.add_io_timeout(wake_at) if ctx.controls?(Fiber.current)
           end
         end
       end

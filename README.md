@@ -206,7 +206,32 @@ end
 
 If the `control` block exits while virtual timers are still pending (i.e.
 fibers are sleeping beyond the last `advance`), a `TimeControl::PendingTimersError`
-is raised. This catches specs that forget to advance past all scheduled work.
+is raised, naming the fibers whose timers were left pending. This catches
+specs that forget to advance past all scheduled work.
+
+### Controlling only specific fibers
+
+In a process with background fibers (housekeeping loops, tickers, stats
+collectors), intercepting every sleep is not practical: any background fiber
+that re-arms its periodic sleep while time is controlled freezes and leaks a
+pending timer. Pass `only:` with a regex to restrict interception to fibers
+whose name matches — all other fibers keep their timers on the real event
+loop.
+
+```crystal
+it "reconnects after the backoff" do
+  TimeControl.control(only: /^Reconnect worker/) do |controller|
+    spawn(name: "Reconnect worker") { sleep 30.seconds; reconnect }
+    controller.advance(30.seconds)
+  end
+end
+```
+
+Note that while time is controlled the real event loop also measures its
+timer deadlines against the virtual clock, so a non-matching fiber's timer
+registered inside the block fires once virtual time advances past it or
+after the block exits — late by up to the advanced amount. For periodic
+housekeeping work this is harmless, but it is not full isolation.
 
 ## How it works
 
