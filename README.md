@@ -202,11 +202,26 @@ it "data arrives before the deadline, no timeout" do
 end
 ```
 
+### Adopting pre-existing timers
+
+Fibers that were already sleeping or waiting on a `select` timeout when the
+`control` block begins are adopted into virtual time: at control start every
+execution context's event loop is scanned, and its sleep and select-timeout
+timers are moved onto the virtual clock so they wake when virtual time is
+advanced past their deadline, instead of waking in real wall-clock time.
+
+This is only done on builds using the Polling event loop (kqueue/epoll). Only
+sleeps and select timeouts are adopted; pending IO-operation timeouts stay on
+the real event loop, since they are tied to a live IO wait.
+
 ### Pending timers
 
 If the `control` block exits while virtual timers are still pending (i.e.
-fibers are sleeping beyond the last `advance`), a `TimeControl::PendingTimersError`
-is raised. This catches specs that forget to advance past all scheduled work.
+fibers are sleeping or waiting on a `select` timeout beyond the last `advance`),
+each pending timer is re-attached to the real event loop with the virtual time
+that remained until it would have fired (`wake_at - virtual_now`). The parked
+fibers then wake up later in real time rather than being abandoned. `control`
+returns immediately and does not wait for them.
 
 ## How it works
 

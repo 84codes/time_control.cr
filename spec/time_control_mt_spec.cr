@@ -1,6 +1,30 @@
 require "./spec_helper"
 
 describe "TimeControl multi-threaded" do
+  it "adopts a fiber sleeping in a separate isolated context before control starts" do
+    ready = Channel(Nil).new
+    woke = Channel(Nil).new
+
+    sleeper = Fiber::ExecutionContext::Isolated.new("pre-sleeper") do
+      ready.send(nil)
+      sleep 10.seconds
+      woke.send(nil)
+    end
+
+    ready.receive
+    sleep 5.milliseconds # let the isolated fiber register its real sleep timer
+
+    TimeControl.control do |controller|
+      controller.advance(10.seconds)
+      select
+      when woke.receive
+      when timeout(2.seconds)
+        fail "adopted sleep in isolated context did not wake when virtual time advanced"
+      end
+    end
+
+    sleeper.wait
+  end
   it "fires read timeouts across isolated contexts in virtual time order" do
     order = Channel(Int32).new(3)
     pipes = Array.new(3) { IO.pipe }
