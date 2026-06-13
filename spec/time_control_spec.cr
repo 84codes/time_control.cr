@@ -215,6 +215,46 @@ describe TimeControl do
     ex.count.should eq(1)
   end
 
+  it "includes the names of fibers with pending timers in the error" do
+    ex = expect_raises(TimeControl::PendingTimersError, /housekeeping/) do
+      TimeControl.control do |_controller|
+        spawn(name: "housekeeping") { sleep 1.second }
+        Fiber.yield
+      end
+    end
+    ex.fiber_names.should eq(["housekeeping"])
+  end
+
+  describe "only filter" do
+    it "advances timers of fibers whose name matches" do
+      done = Channel(Nil).new
+      TimeControl.control(only: /^worker/) do |controller|
+        spawn(name: "worker 1") do
+          sleep 5.minutes
+          done.send(nil)
+        end
+        controller.advance(5.minutes)
+        done.receive
+      end
+    end
+
+    it "leaves timers of non-matching fibers on the real event loop" do
+      TimeControl.control(only: /^worker/) do |_controller|
+        spawn(name: "housekeeping") { sleep 1.second }
+        Fiber.yield
+        # Exits cleanly: the housekeeping timer is real, not a leaked
+        # virtual timer.
+      end
+    end
+
+    it "does not control unnamed fibers" do
+      TimeControl.control(only: /^worker/) do |_controller|
+        spawn { sleep 1.second }
+        Fiber.yield
+      end
+    end
+  end
+
   describe "IO timeouts" do
     it "fires read_timeout when virtual time advances past it" do
       r, w = IO.pipe

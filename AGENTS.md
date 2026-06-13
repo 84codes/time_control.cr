@@ -35,7 +35,7 @@ When enabled:
 
 ## Public API
 
-- `TimeControl.control` — the main entry point
+- `TimeControl.control` — the main entry point; accepts an optional `only:` regex restricting interception to fibers whose name matches (all other fibers keep real timers)
 - `Controller#advance(duration)` — advances virtual time by a fixed amount
 - `Controller#advance` — advances virtual time to the next pending timer
 - `TimeControl::Error`, `TimeControl::PendingTimersError` — error classes

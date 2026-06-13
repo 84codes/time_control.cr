@@ -3,8 +3,10 @@ class Fiber
   def timeout(timeout : Time::Span, select_action : Channel::TimeoutAction) : Nil
     @timeout_select_action = select_action
     TimeControl.when_controlling do |ctx|
-      ctx.add_select_timeout(self, timeout)
-      return
+      if ctx.controls?(self)
+        ctx.add_select_timeout(self, timeout)
+        return
+      end
     end
     timeout_event.add(timeout)
   end
@@ -14,8 +16,10 @@ class Fiber
     return unless @timeout_select_action
     @timeout_select_action = nil
     TimeControl.when_controlling do |ctx|
-      ctx.cancel_select_timeout(self)
-      return
+      if ctx.controls?(self)
+        ctx.cancel_select_timeout(self)
+        return
+      end
     end
     @timeout_event.try &.delete
   end
